@@ -1,76 +1,80 @@
-# Hybrid ESP32 Yoto & Audiobookshelf Controller
+# StoryDeck Core
 
-An open-source, community-ready hardware and software ecosystem allowing children to browse self-hosted **Audiobookshelf (ABS)** audiobooks and **native Yoto playlists** from a bedside **ESP32-S3 touchscreen display** and trigger playback on their physical Yoto players.
+An open-source, community-ready smart hub and middleware broker that bridges children's hardware companion controllers ([**StoryDeck Touch**](https://github.com/YotoStoryDeck/touch)), **Audiobookshelf (ABS)** audio libraries, and physical **Yoto Players**.
+
+StoryDeck Core manages real-time playback state synchronization, catalog curation, multi-child profiles, thumbnail downscaling, and Home Assistant automation integration.
 
 ---
 
 ## 🧩 Upstream Foundations & Architecture Lineage
 
-This ecosystem unifies and builds upon two open-source foundations:
+StoryDeck Core unifies and builds upon foundational work from the open-source community:
 
-1. **Hardware & Touchscreen Dashboard:**
-   * **Upstream Project:** [jayheavner/yoto-esp32-controller](https://github.com/jayheavner/yoto-esp32-controller)
-   * **Role:** Serves as the base firmware, UI layout, and hardware target (Waveshare ESP32-S3-Touch-LCD-4.3B 800×480 IPS display, GT911 touch, 3D printable wall enclosure, night-clock screensaver, and NVS web settings portal).
-2. **Audio Streaming & 2-Way Progress Sync Engine:**
-   * **Upstream Project:** [mylacc/yoto-audiobookshelf-bridge](https://github.com/mylacc/yoto-audiobookshelf-bridge)
-   * **Role:** Serves as the core audio bridge. Streams Audiobookshelf audiobooks dynamically to Yoto players as constant-bitrate MP3 via `ffmpeg`, and synchronizes real-time playback progress back into Audiobookshelf per-user via Yoto MQTT events.
-3. **This Project (`yoto-esp32-broker`):**
-   * **Role:** The lightweight middleware broker that bridges the ESP32 controller to both Audiobookshelf and the Yoto streaming bridge, handling tag filtering, multi-child profiles, thumbnail downscaling, unified playback dispatching, and an optional **multi-platform AI chapter artwork engine** (Gemini, Claude, OpenRouter) with seamless fallback to Yoto ABS Bridge icons.
+1. **Hardware & Touchscreen Appliance:**
+   * **Upstream:** [jayheavner/yoto-esp32-controller](https://github.com/jayheavner/yoto-esp32-controller)
+   * **Attribution:** Created the original ESP32-S3 firmware, UI architecture, and 3D printable bedside enclosure for the Waveshare 4.3" panel.
+2. **Audio Streaming & Two-Way Progress Sync:**
+   * **Upstream:** [mylacc/yoto-audiobookshelf-bridge](https://github.com/mylacc/yoto-audiobookshelf-bridge)
+   * **Attribution:** Created the core Yoto/Audiobookshelf streaming engine, dynamic on-the-fly MP3 transcoding via `ffmpeg`, and MQTT bidirectional progress sync.
+3. **StoryDeck Core (This Hub):**
+   * **Role:** Lightweight central coordinator that provides microcontroller-optimized JSON APIs, tag-based parental curation, multi-child profile switching, live device telemetry, Home Assistant MQTT discovery, device pairing, and firmware OTA management.
 
 ```mermaid
 flowchart LR
-    ESP32["ESP32 Touch Controller<br/>(jayheavner/yoto-esp32-controller)"] -->|"JSON & 100x100 Thumbnails"| Broker["Middleware Broker<br/>(yoto-esp32-broker)"]
-    Broker -->|"Scoped Catalogs & Covers"| ABS["Audiobookshelf Server"]
-    Broker -->|"Primary Gateway: Stream, Telemetry, Controls & Yoto API"| Bridge["Streaming Bridge<br/>(mylacc/yoto-audiobookshelf-bridge)"]
-    Broker -.->|"Direct Cloud Fallback (Optional)"| YotoCloud["Yoto Developer Cloud"]
-    Broker -.->|"Optional AI Chapter Art"| AI["AI Providers<br/>(Gemini, Claude, OpenRouter)"]
-    Bridge -->|"MP3 Stream & MQTT Sync"| YotoPlayer["Physical Yoto Player"]
-    Bridge -->|"OAuth & MQTT Relay"| YotoCloud
+    Touch["StoryDeck Touch<br/>(ESP32-S3 Appliance)"] -->|"Optimized JSON & 100x100 Art"| Core["StoryDeck Core Hub<br/>(FastAPI / SQLite)"]
+    Core -->|"Scoped Catalogs & Covers"| ABS["Audiobookshelf Server"]
+    Core -->|"Streams, Telemetry & Controls"| Bridge["Yoto ABS Bridge Engine<br/>(mylacc/yoto-audiobookshelf-bridge)"]
+    Core -.->|"Home Assistant Auto-Discovery"| HA["Home Assistant (MQTT)"]
+    Bridge -->|"MP3 Stream & MQTT Events"| YotoPlayer["Physical Yoto Player"]
+    Bridge -->|"OAuth & MQTT Relay"| YotoCloud["Yoto Developer Cloud"]
 ```
 
 ---
 
-## 📚 Project Documentation Index
+## 🚀 Key Features
 
-All architectural blueprints, API schemas, hardware wiring details, and deployment guides are available in this repository:
-
-1. [**System Architecture & Implementation Blueprint**](ARCHITECTURE_AND_PLAN.md):
-   * End-to-end design, data flow lifecycle, sequence diagrams, and open-source isolation rules.
-2. [**REST API Specification**](docs/API_SPECIFICATION.md):
-   * Microcontroller-optimized JSON schemas, profile discovery, tag filtering, on-the-fly 100x100 thumbnail resizer, and unified playback dispatch.
-3. [**ESP32 Firmware Blueprint**](docs/FIRMWARE_SPECIFICATION.md):
-   * Waveshare ESP32-S3-Touch-LCD-4.3B hardware rules (16 MHz RGB pixel clock, PSRAM bounce buffer, GT911 touch, CH422G expander), LVGL multi-screen flow, child profile selector, and zero-cloud RAM optimization.
-4. [**Deployment & Operations Guide**](docs/DEPLOYMENT_GUIDE.md):
-   * Docker Compose deployment, environment variable configuration, generic profile mapping (`config.json`), and validation testing.
-5. [**Engineering Master Roadmap**](ROADMAP.md):
-   * Phased development roadmap across all 10 features, architecture dependencies, milestone deliverables, and security guardrails.
-
-### 🌟 Detailed Feature Specifications (`docs/features/`)
-Each individual subsystem and feature is exhaustively documented in our design lifecycle specifications:
-* [**`001-broker_chapter_metadata_and_batch_pregen`**](docs/features/001-broker_chapter_metadata_and_batch_pregen.md): Lightweight chapter metadata API & async background AI batch pre-generator.
-* [**`002-live_telemetry_and_now_playing_api`**](docs/features/002-live_telemetry_and_now_playing_api.md): Aggregated Yoto MQTT / Bridge state telemetry & remote controls with parental volume limits.
-* [**`003-esp32_firmware_profile_selection`**](docs/features/003-esp32_firmware_profile_selection.md): Screen 1 multi-child landing screen, NVS persistence, zero-profile bypass, and profile switching badge.
-* [**`004-esp32_firmware_adaptive_catalog_tabs`**](docs/features/004-esp32_firmware_adaptive_catalog_tabs.md): Screen 2 adaptive dual-tab catalog grid, 100x100 tiles, and streaming TJpgDec PSRAM decoding.
-* [**`005-esp32_firmware_chapter_browser_and_detail_view`**](docs/features/005-esp32_firmware_chapter_browser_and_detail_view.md): Screen 3 book detail overlay, scrollable chapter list with 16x16 pixel art icons, and playback dispatch.
-* [**`006-esp32_firmware_now_playing_screen`**](docs/features/006-esp32_firmware_now_playing_screen.md): Screen 4 bedside Now Playing dashboard with progress bar, transport controls, and volume slider.
-* [**`007-esp32_hardware_display_and_power_management`**](docs/features/007-esp32_hardware_display_and_power_management.md): Waveshare 4.3" 16 MHz pixel clock, DMA burst settings, SRAM draw buffers, and amber night clock screensaver.
-* [**`008-home_assistant_mqtt_discovery_and_bedtime_lock`**](docs/features/008-home_assistant_mqtt_discovery_and_bedtime_lock.md): Home Assistant MQTT auto-discovery, remote bedtime screen lock switch, and playback sensors.
-* [**`009-broker_web_admin_dashboard`**](docs/features/009-broker_web_admin_dashboard.md): Centralized web admin portal with proxy SSO / Basic Auth, profile CRUD, live entity discovery, unified catalog matrix grid with seasonal highlights, and live connection diagnostics.
-* [**`010-broker_managed_remote_ota_and_rollback`**](docs/features/010-broker_managed_remote_ota_and_rollback.md): Centralized firmware binary storage, 1-click remote OTA upgrades from the Web Admin UI, SHA-256 verification, and automated/manual partition version rollback.
-* [**`011-curation_matrix_mass_edit_and_bulk_permissions`**](docs/features/011-curation_matrix_mass_edit_and_bulk_permissions.md): Multi-card selection, docked floating bulk action bar, mass edit permissions modal, and atomic SQLite batch permission endpoints.
-* [**`012-tracklist_browser_and_chapter_artwork_studio`**](docs/features/012-tracklist_browser_and_chapter_artwork_studio.md): Card tracklist browser modal, read-only retail inspection, editable ABS/MYO chapter pixel art, 1-click auto-match, and manual community icon picker.
-* [**`013-api_security_tokens_and_per_device_jwt_architecture`**](docs/features/013-api_security_tokens_and_per_device_jwt_architecture.md): Master API keys for Bridge & Broker, preserved WAN streaming, and per-device rotating JWTs with instant hardware revocation.
+* **Microcontroller-Optimized APIs:** Tailored endpoints serving compact JSON payloads and streaming 100×100 JPEG thumbnails formatted specifically for low-RAM microcontrollers.
+* **Multi-Child Profiles:** Separate libraries and preferences per child or room, with support for instant profile switching.
+* **Tag-Based Content Filtering:** Filter Audiobookshelf audiobooks and Yoto playlists by age, child tag, or collection.
+* **Live Telemetry & Remote Transport:** Real-time playback status, volume controls with parental caps, track progress, and chapter markers.
+* **Home Assistant MQTT Discovery:** Automatic entity discovery for bedtime screen locks, now-playing sensors, and automation switches.
+* **Device Pairing & Management:** Simple PIN pairing for StoryDeck Touch controllers without exposing raw cloud credentials to bedside devices.
+* **Remote OTA Updates:** Distribute and manage firmware updates for StoryDeck Touch directly from the Core Web Admin.
 
 ---
 
-## 🚀 Quick Reference
+## 📚 Documentation Index
 
-### Sample Configuration & Persistence Files
-* [`config.example.json`](config.example.json): Generic child profiles, tags, and Yoto player ID bootstrap template (auto-migrated to SQLite on first boot).
-* [`sample app/.env.example`](sample%20app/.env.example): Environment variable template for Audiobookshelf, Yoto credentials, and Admin authentication.
-* [`sample app/`](sample%20app/): Python microservice implementation with embedded SQLite database (`/data/broker.db`).
+* [**REST API Specification**](docs/API_SPECIFICATION.md): Microcontroller endpoints, schemas, and error contracts.
+* [**System Architecture & Blueprint**](ARCHITECTURE_AND_PLAN.md): End-to-end design, data flow lifecycle, and security rules.
+* [**Deployment & Operations Guide**](docs/DEPLOYMENT_GUIDE.md): Docker Compose setup, environment configuration, and profiles.
+* [**Firmware Specification**](docs/FIRMWARE_SPECIFICATION.md): ESP32-S3 hardware rules, LVGL screen flows, and memory optimization.
+* [**Engineering Roadmap**](ROADMAP.md): Milestone roadmap, architecture dependencies, and deliverables.
 
 ---
 
-## 🔒 Open Source & Community Standard
-This repository is strictly designed with **zero hardcoded personal identifiers**. No personal names, device serials, internal IP addresses, or private tokens are stored in the codebase. All runtime associations are persisted locally in SQLite (`/data/broker.db`) with bootstrap injection via `.env` and `config.json`.
+## 🛠️ Quick Start (Docker)
+
+```bash
+git clone https://github.com/YotoStoryDeck/core.git
+cd core
+cp .env.example .env
+# Edit .env with your Audiobookshelf and Yoto credentials
+docker compose up -d
+```
+
+Core will be available at `http://localhost:8000`. Access `/admin` for the management dashboard and `/docs` for interactive Swagger API documentation.
+
+---
+
+## 📜 Credits & Acknowledgments
+
+* **Jay Heavner** ([@jayheavner](https://github.com/jayheavner)) for the original [yoto-esp32-controller](https://github.com/jayheavner/yoto-esp32-controller), hardware schematics, and touchscreen UI patterns.
+* **Mylacc** ([@mylacc](https://github.com/mylacc)) for the pioneering [yoto-audiobookshelf-bridge](https://github.com/mylacc/yoto-audiobookshelf-bridge) streaming and progress synchronization engine.
+* **The Yoto Community** for reverse-engineering and documenting the Yoto API ecosystem.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
