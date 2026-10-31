@@ -1,0 +1,16 @@
+<!-- Tab 1: Profiles Management -->
+    <section class="tab-content active" id="tab-profiles">
+      <div class="section-toolbar">
+        <div>
+          <h2>Household Profiles</h2>
+          <p class="text-secondary">Configure child accounts, dedicated Audiobookshelf tokens, and target Yoto players.</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" onclick="runHouseholdAutoDiscovery()">⚡ Auto-Discover Household</button>
+          <button class="btn btn-primary" onclick="openProfileModal()">+ Add Child Profile</button>
+        </div>
+      </div>
+      <div class="profile-cards-grid" id="profileCardsGrid">
+        <!-- Rendered via JS -->
+      </div>
+    </section>

@@ -1,0 +1,43 @@
+<!-- 6. Mass Edit Permissions Modal (Feature 011) -->
+  <div class="modal-overlay" id="curationMassEditModal" style="display: none;">
+    <div class="modal-card" style="max-width: 640px; width: 100%;">
+      <div class="modal-header">
+        <h2 style="font-size: 18px; margin: 0 0 4px 0;">⚡ Mass Edit Card Permissions</h2>
+        <p class="text-secondary" style="margin: 0; font-size: 13px;" id="massEditModalSubtitle">
+          Configure permissions across selected cards.
+        </p>
+      </div>
+
+      <!-- Breakdown of selected items -->
+      <div id="massEditBreakdown" style="margin: 14px 0; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 16px;">
+        <!-- Populated via JS (e.g. 15 cards: 10 Yoto Retail, 3 MYO, 2 ABS) -->
+      </div>
+
+      <div style="margin-top: 16px;">
+        <h4 style="font-size: 13px; margin-bottom: 8px; color: var(--text-primary);">
+          Select Action per Child Profile:
+        </h4>
+        <div id="massEditProfilesList" class="custom-scrollbar" style="display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; overflow-x: hidden; background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 10px; border-radius: 6px;">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- Optional Highlight Batch Update -->
+      <div style="margin-top: 16px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <strong style="font-size: 13px; color: var(--text-primary); display: block;">Seasonal Highlight Status</strong>
+          <span class="text-secondary" style="font-size: 11px;">Optionally set highlight/pinned status for all selected cards</span>
+        </div>
+        <select id="massEditHighlightAction" class="form-control" style="width: auto; min-width: 150px; font-size: 12px;">
+          <option value="no_change">-- No Change --</option>
+          <option value="set_highlight">⭐ Pin / Highlight</option>
+          <option value="clear_highlight">☆ Remove Highlight</option>
+        </select>
+      </div>
+
+      <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="closeMassEditModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitMassEditModal()">Apply Batch Permissions</button>
+      </div>
+    </div>
+  </div>

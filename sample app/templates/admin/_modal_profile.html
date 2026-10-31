@@ -1,0 +1,111 @@
+<!-- 3. Edit / Add Profile Modal -->
+  <div class="modal-overlay" id="profileModal" style="display: none;">
+    <div class="modal-card" style="max-width: 580px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h2 id="profileModalTitle">👶 Child Profile Configuration</h2>
+        <p class="text-secondary">Configure profile identity, Audiobookshelf user tokens, and assigned primary/communal Yoto players.</p>
+      </div>
+      <form id="profileForm" onsubmit="saveProfileForm(event)">
+        <input type="hidden" id="profileEditId" value="">
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label for="profileDisplayName">Child Display Name</label>
+            <input type="text" id="profileDisplayName" class="form-control" required placeholder="Jackson" oninput="if (!document.getElementById('profileAvatarUrlHidden').value && !pendingAvatarFile) updateAvatarPreview('', this.value)">
+          </div>
+          <div class="form-group">
+            <label for="profileIdField">Profile ID <span class="text-secondary">(slug)</span></label>
+            <input type="text" id="profileIdField" class="form-control" required placeholder="jackson">
+          </div>
+        </div>
+
+        <!-- Profile Picture / Avatar for ESP32 Touchscreen -->
+        <div style="background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 style="font-size: 13px; color: var(--accent-info); margin-bottom: 8px;">🖼️ Profile Picture (ESP32 Touchscreen Picker)</h4>
+          <p class="text-secondary" style="font-size: 11px; margin-bottom: 12px;">
+            Displayed on the ESP32 bedside controller during profile switching and active child playback.
+          </p>
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div id="profileAvatarPreviewWrapper" style="width: 64px; height: 64px; border-radius: 50%; overflow: hidden; background: var(--bg-surface-elevated); border: 2px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <img id="profileAvatarPreview" src="" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+              <span id="profileAvatarPlaceholder" style="font-size: 26px;">👶</span>
+            </div>
+            <div style="flex: 1;">
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="file" id="profileAvatarFileInput" accept="image/png, image/jpeg, image/webp" style="display: none;" onchange="handleAvatarFileSelected(event)">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('profileAvatarFileInput').click()">📁 Choose Photo</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnToggleAvatarUrl" onclick="toggleAvatarUrlInput()">🌐 Image URL</button>
+                <button type="button" class="btn btn-danger btn-sm" id="btnRemoveAvatar" style="display: none;" onclick="removeProfileAvatar()">✕ Remove</button>
+              </div>
+              <input type="text" id="profileAvatarUrlInput" class="form-control" style="display: none; margin-top: 8px;" placeholder="https://example.com/photo.jpg" oninput="handleAvatarUrlInput(this.value)">
+              <input type="hidden" id="profileAvatarUrlHidden" value="">
+              <input type="hidden" id="profileAvatarColorHidden" value="">
+              
+              <!-- Color Palette Swatches & Custom Monogram -->
+              <div id="avatarFallbackCustomizer" style="margin-top: 10px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                  <span style="font-size: 11px; color: var(--text-secondary);">Signature Color & Monogram:</span>
+                  <input type="text" id="profileAvatarInitialInput" maxlength="2" placeholder="Auto" style="width: 52px; padding: 2px 6px; font-size: 11px; text-transform: uppercase; text-align: center; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);" oninput="onCustomInitialInput(this.value)" title="Custom 1-2 letter monogram">
+                </div>
+                <div id="avatarColorSwatches" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <!-- Rendered via JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audiobookshelf User & Token Binding -->
+        <div style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 style="font-size: 13px; color: var(--accent-abs); margin-bottom: 8px;">📚 Audiobookshelf User Binding</h4>
+          <p class="text-secondary" style="font-size: 11px; margin-bottom: 12px;">
+            Select the child's Audiobookshelf user account. The broker automatically links their profile and enforces their allowed libraries, tag restrictions, and content permissions without needing manual tokens.
+          </p>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label for="profileAbsUsernameSelect">Audiobookshelf User Account</label>
+            <select id="profileAbsUsernameSelect" class="form-control" onchange="onAbsUserSelectChange()">
+              <option value="">-- Unassigned (Master Library) --</option>
+            </select>
+            <input type="text" id="profileAbsUsernameCustom" class="form-control" style="display: none; margin-top: 6px;" placeholder="Or enter username manually">
+          </div>
+          
+          <!-- Optional Advanced Token & Tag Overrides -->
+          <details style="margin-top: 8px; font-size: 11px; color: var(--text-secondary);">
+            <summary style="cursor: pointer; user-select: none; color: var(--accent-abs);">Advanced Overrides (Manual Token & Tag Filter)</summary>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="profileAbsApiKey" style="font-size: 11px;">Custom API Token <span class="text-secondary">(leave blank to auto-resolve)</span></label>
+                <input type="password" id="profileAbsApiKey" class="form-control" placeholder="Auto-resolved from user account" autocomplete="off">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="profileAbsTag" style="font-size: 11px;">Additional Tag Filter <span class="text-secondary">(optional)</span></label>
+                <input type="text" id="profileAbsTag" class="form-control" placeholder="Leave blank for user's allowed items">
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <!-- Yoto Player Routing (Primary ESP32 + Additional/Communal Devices) -->
+        <div style="background: rgba(229, 53, 43, 0.06); border: 1px solid rgba(229, 53, 43, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 style="font-size: 13px; color: var(--accent-yoto); margin-bottom: 8px;">📻 Yoto Player Hardware Routing</h4>
+          <div class="form-group">
+            <label for="profilePlayerSelect">Primary Yoto Player <span class="text-secondary">(default target for this child's ESP32 bedside controller)</span></label>
+            <select id="profilePlayerSelect" class="form-control" onchange="syncPlayerCheckboxesWithPrimary()">
+              <option value="">-- Unassigned (Auto-select on Playback) --</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="display: block; margin-bottom: 6px;">Available Yoto Devices <span class="text-secondary">(Select primary, additional bedroom, or communal devices)</span></label>
+            <div id="profileAdditionalPlayersList" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 8px 12px; border-radius: 6px;">
+              <!-- Populated via JS -->
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+          <button type="button" class="btn btn-secondary" onclick="closeProfileModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>

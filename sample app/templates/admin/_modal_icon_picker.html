@@ -1,0 +1,151 @@
+<!-- 8. Interactive Icon Search & Multi-Track Studio Modal -->
+<div class="modal-overlay" id="iconPickerModal" style="display: none; z-index: 150;">
+  <div class="modal-card" style="max-width: 660px; width: 100%; max-height: 85vh; display: flex; flex-direction: column; padding: 24px;">
+    <!-- Fixed Modal Header -->
+    <div class="modal-header" style="flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+      <h2 style="font-size: 17px; margin: 0 0 4px 0;">🎨 Chapter Artwork & Icon Studio</h2>
+      <p class="text-secondary" style="margin: 0; font-size: 12px;" id="iconPickerSubtitle">
+        Search community 16×16 icons, upload custom image, or apply single-book cover with chapter overlays.
+      </p>
+    </div>
+
+    <!-- Mode Switcher Tabs -->
+    <div style="flex-shrink: 0; display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+      <button type="button" class="btn btn-sm btn-primary" id="btnIconTabSearch" onclick="switchIconPickerTab('search')">
+        🔍 Community Icons
+      </button>
+      <button type="button" class="btn btn-sm btn-secondary" id="btnIconTabUpload" onclick="switchIconPickerTab('upload')">
+        📁 Upload Image / URL
+      </button>
+    </div>
+
+    <!-- Scrollable Modal Body (Prevents buttons from getting cut off) -->
+    <div class="custom-scrollbar" style="flex: 1; overflow-y: auto; padding-right: 4px; margin-bottom: 12px;">
+      <!-- Mode 1: Community Search Section -->
+      <div id="iconPickerSectionSearch">
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input type="text" id="iconSearchInput" class="form-control" placeholder="Search icons (e.g. dragon, magic, train, bedtime)..." onkeydown="if(event.key==='Enter') executeIconSearch()">
+          <button type="button" class="btn btn-primary" onclick="executeIconSearch()">Search</button>
+        </div>
+
+        <!-- Quick category suggestion tags -->
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('dragon')">🐉 Dragon</span>
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('magic')">✨ Magic</span>
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('train')">🚂 Train</span>
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('bedtime')">🌙 Bedtime</span>
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('animal')">🦁 Animal</span>
+          <span class="badge" style="cursor: pointer; background: var(--bg-surface-elevated);" onclick="searchIconTag('space')">🚀 Space</span>
+        </div>
+
+        <!-- Icon Results Grid -->
+        <div id="iconPickerResults" class="custom-scrollbar" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 10px; border-radius: 8px; margin-bottom: 12px;">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+
+      <!-- Mode 2: Custom Image Upload / URL Section -->
+      <div id="iconPickerSectionUpload" style="display: none; margin-bottom: 12px;">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px;">
+          <div style="display: flex; gap: 14px; align-items: center; margin-bottom: 10px;">
+            <!-- 16x16 Pixel Art Preview Canvas -->
+            <div style="text-align: center; flex-shrink: 0;">
+              <div style="width: 56px; height: 56px; background: #000; border: 2px solid var(--border-color); border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+                <canvas id="iconUploadCanvas" width="16" height="16" style="width: 56px; height: 56px; image-rendering: pixelated;"></canvas>
+              </div>
+              <span style="font-size: 10px; color: var(--text-muted); display: block; margin-top: 2px;">16×16 Preview</span>
+            </div>
+
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                <input type="file" id="iconFileInput" accept="image/png, image/jpeg, image/webp" style="display: none;" onchange="handleIconFileSelected(event)">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('iconFileInput').click()">📁 Choose PC File</button>
+                <span class="text-secondary" style="font-size: 11px;">or enter web image URL:</span>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <input type="text" id="iconUrlInput" class="form-control" placeholder="https://example.com/cover.jpg" style="font-size: 12px;" oninput="handleIconUrlInput(this.value)">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="handleIconUrlInput(document.getElementById('iconUrlInput').value)">Load</button>
+              </div>
+            </div>
+          </div>
+          <p class="text-secondary" style="font-size: 11px; margin: 0; line-height: 1.4;">
+            💡 <strong>Omnibus tip:</strong> Paste the individual book cover URL or pick an image file. It will be center-cropped to a crisp 16×16 display icon.
+          </p>
+        </div>
+      </div>
+
+      <!-- Selected Artwork Indicator (When chosen from search or upload) -->
+      <div id="iconPickerChosenBanner" style="display: none; align-items: center; justify-content: space-between; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px; padding: 6px 10px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img id="iconPickerChosenThumb" src="" style="width: 28px; height: 28px; image-rendering: pixelated; border-radius: 4px; border: 1px solid var(--border-subtle);" alt="selected">
+          <div>
+            <strong id="iconPickerChosenTitle" style="font-size: 12px; color: var(--text-primary); display: block;">Artwork Selected</strong>
+            <span id="iconPickerChosenSource" style="font-size: 10px; color: var(--text-secondary);">Ready to apply</span>
+          </div>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 1px 6px;" onclick="clearChosenIcon()">✕ Reselect</button>
+      </div>
+
+      <!-- Track Overlay Numbering Option -->
+      <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+          <label class="toggle-control" style="margin-top: 2px;">
+            <input type="checkbox" id="iconOverlayCheckbox" onchange="toggleOverlayOption(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <div style="flex: 1;">
+            <strong style="font-size: 12px; color: var(--text-primary); display: block;">🔢 Overlay Chapter Number on Artwork</strong>
+            <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0; line-height: 1.3;">
+              Burns the chapter number in micro 3×4 pixel digits in the corner of the 16×16 icon (like the Yoto Bridge). Detects chapter numbers (<code>Chapter 1</code>, <code>Ch. 02</code>, <code>Chap 3</code>), falling back to track index if unnumbered.
+            </p>
+          </div>
+          <div id="iconOverlayCornerWrapper" style="display: none; align-items: center; gap: 6px;">
+            <span style="font-size: 11px; color: var(--text-secondary);">Corner:</span>
+            <select id="iconOverlayCornerSelect" class="form-control" style="font-size: 11px; padding: 1px 4px; height: 26px;">
+              <option value="top-right" selected>Top Right (Yoto Default)</option>
+              <option value="top-left">Top Left</option>
+              <option value="bottom-right">Bottom Right</option>
+              <option value="bottom-left">Bottom Left</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Track Target Assignment Scope -->
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px;">
+        <strong style="font-size: 12px; color: var(--text-primary); display: block; margin-bottom: 6px;">
+          🎯 Apply Artwork To:
+        </strong>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="radio" name="iconTargetScope" value="single" checked onchange="onIconScopeChange('single')">
+            <span id="iconScopeSingleLabel">Current Track Only</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="radio" name="iconTargetScope" value="remaining" onchange="onIconScopeChange('remaining')">
+            <span id="iconScopeRemainingLabel">From Current Track to End of Book</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="radio" name="iconTargetScope" value="all" onchange="onIconScopeChange('all')">
+            <span>Entire Book (All Tracks)</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="radio" name="iconTargetScope" value="custom" onchange="onIconScopeChange('custom')">
+            <span>Custom Selected Tracks:</span>
+          </label>
+        </div>
+
+        <!-- Checkboxes list for custom selection (visible when 'custom' is active) -->
+        <div id="iconCustomTrackList" style="display: none; margin-top: 8px; max-height: 120px; overflow-y: auto; background: var(--bg-base); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 8px;" class="custom-scrollbar">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Fixed Modal Footer (Always visible, never cut off) -->
+    <div class="form-actions" style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 0;">
+      <button type="button" class="btn btn-secondary" onclick="closeIconPickerModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="btnApplyArtwork" onclick="applyArtworkToTargets()">✨ Apply Artwork</button>
+    </div>
+  </div>
+</div>

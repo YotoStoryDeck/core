@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.class
+*.db
+!broker.db.example
+.env
+.tmp/
+node_modules/
+dist/
+build/

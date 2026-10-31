@@ -1,0 +1,19 @@
+<!-- Modal: Regenerate Master API Key Confirmation (Feature 013) -->
+  <div class="modal" id="regenerateApiKeyModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1050; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+    <div class="modal-content" style="max-width: 480px; width: 90%; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <span style="font-size: 28px;">⚠️</span>
+        <h3 style="margin: 0; font-size: 18px; color: var(--accent-danger);">Regenerate Master API Key?</h3>
+      </div>
+      <p style="color: var(--text-primary); font-size: 13px; line-height: 1.5; margin-bottom: 14px;">
+        Regenerating your Master API Key will <strong>immediately invalidate</strong> the current key.
+      </p>
+      <p style="color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin-bottom: 20px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; padding: 10px;">
+        Any external integrations (Home Assistant automations, diagnostic scripts, or third-party webhooks) will cease functioning until updated with the new key.
+      </p>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="closeRegenerateApiKeyModal()">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="confirmRegenerateApiKey()">🔄 Yes, Regenerate Key</button>
+      </div>
+    </div>
+  </div>

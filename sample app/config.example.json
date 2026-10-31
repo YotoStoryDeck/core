@@ -1,0 +1,72 @@
+{
+  "shared_yoto": {
+    "include_all": false,
+    "include_myo_by_default": true,
+    "allowed_card_ids": [
+      "card_disney_classics",
+      "myo_family_bedtime_stories"
+    ],
+    "match_titles": [
+      "^Bedtime.*",
+      ".*Lullaby.*",
+      ".*\\[All\\].*"
+    ]
+  },
+  "profiles": {
+    "child_one": {
+      "display_name": "Child One",
+      "abs_api_key": "child_user_specific_abs_api_key",
+      "abs_library_id": "lib_kids_audiobooks_sample_id",
+      "abs_tag": "child_one",
+      "default_player_id": "y2_sample_player_id_1",
+      "player_ids": [
+        "y2_sample_player_id_1",
+        "y2_sample_player_id_2"
+      ],
+      "yoto": {
+        "inherit_shared": true,
+        "allowed_card_ids": [
+          "card_paw_patrol_01",
+          "myo_child_one_favorites"
+        ],
+        "excluded_card_ids": [
+          "card_older_sibling_spooky_stories"
+        ],
+        "match_titles": [
+          ".*\\[Child One\\].*"
+        ]
+      }
+    },
+    "child_two": {
+      "display_name": "Child Two",
+      "abs_api_key": "",
+      "abs_library_id": "lib_kids_audiobooks_sample_id",
+      "abs_tag": "child_two",
+      "default_player_id": "y2_sample_player_id_3",
+      "player_ids": [
+        "y2_sample_player_id_3"
+      ],
+      "yoto": {
+        "inherit_shared": true,
+        "allowed_card_ids": [
+          "card_older_sibling_spooky_stories",
+          "card_harry_potter_01"
+        ],
+        "excluded_card_ids": [],
+        "match_titles": [
+          ".*\\[Child Two\\].*"
+        ]
+      }
+    }
+  },
+  "settings": {
+    "thumbnail_size": 100,
+    "thumbnail_quality": 80,
+    "cache_ttl_hours": 168,
+    "ai_chapter_art": {
+      "enabled": false,
+      "provider": "openrouter",
+      "fallback_to_bridge": true
+    }
+  }
+}

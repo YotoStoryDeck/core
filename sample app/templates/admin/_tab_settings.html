@@ -1,0 +1,349 @@
+<!-- Tab 4: Settings & Diagnostics -->
+    <section class="tab-content" id="tab-settings">
+      <div class="section-toolbar">
+        <div>
+          <h2>Settings & System Configuration</h2>
+          <p class="text-secondary">Manage upstream server connections, credentials, and live diagnostic checks.</p>
+        </div>
+      </div>
+
+      <!-- API & Hardware Security Card (Feature 013: API Key Security) -->
+      <div class="card settings-card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">🔑 API & Hardware Security</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Manage master API tokens for external automation and cryptographically isolated microcontroller keys.</p>
+          </div>
+          <span class="badge badge-success" style="font-size: 11px;">Dual-Gate Active</span>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
+          <label for="brokerMasterApiKey" style="display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--text-primary);">Broker Master API Key</label>
+          <form onsubmit="return false;" style="margin: 0; padding: 0;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <div style="position: relative; flex: 1; min-width: 280px;">
+                <input type="password" id="brokerMasterApiKey" name="broker_master_api_key" class="form-control" readonly autocomplete="off" style="font-family: monospace; font-size: 13px; letter-spacing: 1px; background: rgba(0,0,0,0.3); color: var(--text-primary);">
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnToggleMasterApiKey" onclick="toggleMasterApiKeyVisibility()" title="Show/Hide API Key">
+                👁️ Show
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="copyMasterApiKey()" title="Copy API Key to clipboard">
+                📋 Copy
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" onclick="openRegenerateApiKeyModal()" title="Regenerate master key">
+                🔄 Regenerate Key
+              </button>
+            </div>
+          </form>
+          <p class="text-secondary" style="font-size: 11px; margin-top: 8px; margin-bottom: 0;">
+            Use this key as an <code>X-Api-Key</code> header or Bearer token to authorize external services (Home Assistant, scripts, direct API tools).
+          </p>
+        </div>
+      </div>
+
+      <!-- Section: Preferences (Catalog & Automatic Library Refresh) -->
+      <div class="card settings-card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">⚙️ Preferences</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Configure periodic library scanning from upstream servers and Bedside Controller display preferences.</p>
+          </div>
+        </div>
+
+        <!-- Automatic Library Refresh Setting -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+            <div style="max-width: 580px;">
+              <strong style="display: block; font-size: 14px; color: var(--text-primary); margin-bottom: 4px;">Automatic Background Library Refresh</strong>
+              <p class="text-secondary" style="font-size: 12px; margin: 0; line-height: 1.4;">
+                Periodically scans connected Audiobookshelf servers and Yoto libraries in the background to discover new cards, audiobooks, and updated chapters.
+              </p>
+            </div>
+            <div>
+              <label class="switch" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="toggleAutoLibraryRefresh" onchange="onAutoRefreshToggleChange()">
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          <div id="autoRefreshIntervalContainer" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+            <div>
+              <label for="autoLibraryRefreshHours" style="font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; display: block;">Refresh Frequency</label>
+              <span class="text-secondary" style="font-size: 11px;">Default is 6 hours. Choose how frequently background scans run.</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <select id="autoLibraryRefreshHours" class="form-control" style="width: 180px; font-size: 13px;">
+                <option value="1">Every 1 hour</option>
+                <option value="2">Every 2 hours</option>
+                <option value="4">Every 4 hours</option>
+                <option value="6">Every 6 hours (Default)</option>
+                <option value="12">Every 12 hours</option>
+                <option value="24">Every 24 hours (Daily)</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="triggerManualLibrarySync()" id="btnSyncNowSettings" title="Run immediate library scan">
+                🔄 Sync Now
+              </button>
+            </div>
+          </div>
+          <div id="libraryRefreshStatusNotice" style="margin-top: 8px; font-size: 11px; color: var(--text-muted);">
+            <!-- Live status rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Exclude Single-Card Series Toggle -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <div style="max-width: 580px;">
+              <strong style="display: block; font-size: 14px; color: var(--text-primary); margin-bottom: 4px;">Exclude Single-Card Series / Groups</strong>
+              <p class="text-secondary" style="font-size: 12px; margin: 0; line-height: 1.4;">
+                When enabled, series or groups with only 1 individual card/book are excluded from the <strong>Series / Groups</strong> view, leaving only genuine multi-book series collections.
+              </p>
+            </div>
+            <div>
+              <label class="switch" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="toggleExcludeSingleSeries">
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preferences Action Toolbar -->
+        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+          <button type="button" class="btn btn-primary" onclick="savePreferencesSettings()" id="btnSavePreferences">
+            💾 Save Preferences
+          </button>
+        </div>
+      </div>
+
+      <!-- Architecture Mode Selector Card -->
+      <div class="card settings-card" style="margin-bottom: 24px;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">🌐 Yoto Integration Architecture</h3>
+            <span class="text-secondary" style="font-size: 13px;">Choose whether the broker connects via your local Streaming Bridge or directly to Yoto Cloud.</span>
+          </div>
+          <div style="min-width: 320px;">
+            <select id="yotoConnectionMode" class="form-control" onchange="onYotoModeChange()" style="font-weight: 500;">
+              <option value="bridge">🌉 Streaming Bridge (Recommended - Zero Yoto Keys)</option>
+              <option value="direct">☁️ Direct Yoto Cloud (Standalone Broker)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 1: ABS-Yoto Bridge Card (Visible in Bridge mode) -->
+      <div class="card settings-card" id="sectionBridgeConfig" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px; color: var(--accent-success);">🌉 Yoto-ABS Streaming Bridge</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Coordinates playback streaming, Yoto OAuth sessions, and real-time player telemetry.</p>
+          </div>
+          <span class="badge badge-success" style="font-size: 11px;">Bridge Mode</span>
+        </div>
+
+        <form onsubmit="return false;" style="margin: 0; padding: 0;">
+          <div class="form-group">
+            <label for="credBridgeUrl">Streaming Bridge URL <span class="text-secondary">(Required in Bridge mode)</span></label>
+            <input type="text" id="credBridgeUrl" class="form-control" placeholder="http://192.168.1.100:8080">
+          </div>
+          <div class="form-group">
+            <label for="credBridgeApiKey">Bridge API Key <span class="text-secondary">(Optional key from Bridge config.yaml)</span></label>
+            <input type="password" id="credBridgeApiKey" name="bridge_api_key" class="form-control" placeholder="••••••••••••••••" autocomplete="off">
+          </div>
+        </form>
+
+        <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 6px; padding: 10px; font-size: 12px; color: #86efac; line-height: 1.4; margin-bottom: 16px;">
+          💡 <strong>Zero Yoto credentials needed!</strong> The bridge manages Yoto OAuth, token refresh, and physical player streams. The broker queries the bridge locally for library cards and telemetry.
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <span class="text-secondary" id="bridgeStatusInline" style="font-size: 12px;">Ready to test connection.</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testServiceConnection('bridge')" id="btnTestBridge">
+              🔌 Test Connection
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveBridgeSettings()" id="btnSaveBridge">
+              💾 Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Yoto Standalone Card (Visible in Direct Yoto Cloud mode) -->
+      <div class="card settings-card" id="sectionDirectYotoCloud" style="display: none; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px; color: var(--accent-yoto);">☁️ Yoto Standalone (Direct Cloud API)</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Direct cloud communication with yoto.dev developer APIs (standalone broker mode without bridge).</p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="startInBrowserYotoOAuth()">🔗 Connect Yoto in Browser</button>
+        </div>
+
+        <form onsubmit="return false;" style="margin: 0; padding: 0;">
+          <div class="form-group">
+            <label for="credYotoClientId">Client ID <span class="text-secondary">(Required in Direct mode)</span></label>
+            <input type="text" id="credYotoClientId" name="yoto_client_id" class="form-control" placeholder="your_client_id" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="credYotoRefresh">Refresh Token <span class="text-secondary" style="font-size: 11px;">(Auto-filled by Connect Yoto button or paste manually)</span></label>
+            <input type="password" id="credYotoRefresh" name="yoto_refresh_token" class="form-control" placeholder="••••••••••••••••" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="credYotoSecret">Client Secret <span class="text-secondary" style="font-size: 11px;">(Confidential clients only; blank for Public)</span></label>
+            <input type="password" id="credYotoSecret" name="yoto_client_secret" class="form-control" placeholder="•••••••••••••••• (Leave blank if public)" autocomplete="off">
+          </div>
+        </form>
+
+        <div id="yotoOAuthManualHelper" style="display: none; margin-top: 10px; margin-bottom: 16px; background: rgba(0,0,0,0.25); padding: 10px; border-radius: 6px; border: 1px dashed var(--accent-yoto);">
+          <label style="font-size: 12px; margin-bottom: 4px; display: block; color: var(--accent-yoto);">Paste Callback URL or Code:</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="yotoPastedUrl" class="form-control" placeholder="Paste the URL from the callback page or code here">
+            <button type="button" class="btn btn-primary" style="white-space: nowrap; font-size: 12px;" onclick="finishInBrowserYotoOAuth()">Complete Login</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <span class="text-secondary" id="yotoStatusInline" style="font-size: 12px;">Ready to test Yoto Cloud OAuth.</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testServiceConnection('yoto')" id="btnTestYoto">
+              🔌 Test OAuth
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveYotoStandaloneSettings()" id="btnSaveYoto">
+              💾 Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Audiobookshelf Card (Visible in Bridge mode) -->
+      <div class="card settings-card" id="sectionAbsConfig" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px; color: var(--accent-abs);">📚 Audiobookshelf</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Manage connection to your self-hosted Audiobookshelf server and configure default child account tags.</p>
+          </div>
+          <span class="badge badge-warning" style="font-size: 11px;">ABS Active</span>
+        </div>
+
+        <form onsubmit="return false;" style="margin: 0; padding: 0;">
+          <div class="form-group">
+            <label for="credAbsUrl">Server URL</label>
+            <input type="text" id="credAbsUrl" name="abs_server_url" class="form-control" placeholder="http://192.168.1.100:1337" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="credAbsKey">Master / Service API Key</label>
+            <input type="password" id="credAbsKey" name="abs_master_api_key" class="form-control" placeholder="••••••••••••••••" autocomplete="off">
+          </div>
+        </form>
+
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Default Child Account Tag(s)</span>
+            <button type="button" class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 1px 6px;" onclick="fetchAbsServerTags()">🔄 Refresh ABS Tags</button>
+          </label>
+          <p class="text-secondary" style="font-size: 11px; margin-bottom: 6px;">
+            Books with these tags in Audiobookshelf are automatically granted to child accounts.
+          </p>
+          <div id="absSelectedDefaultTags" style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; min-height: 28px; padding: 4px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 4px;">
+            <!-- Selected tags pills rendered via JS -->
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <select id="absServerTagsDropdown" class="form-control" style="font-size: 12px;">
+              <option value="">-- Choose from Audiobookshelf tags --</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="addSelectedAbsDefaultTag()">+ Add Tag</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <span class="text-secondary" id="absStatusInline" style="font-size: 12px;">Ready to test server reachable.</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testServiceConnection('abs')" id="btnTestAbs">
+              🔌 Test Connection
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveAbsSettings()" id="btnSaveAbs">
+              💾 Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 4: Tinker Icons Card (Visible in Bridge mode) -->
+      <div class="card settings-card" id="sectionTinkerConfig" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px; color: var(--accent-info);">🎨 Tinker Icons</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Community pixel art repository provider for 16×16 chapter artwork.</p>
+          </div>
+          <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3); font-size: 11px;">Icons Tier 2</span>
+        </div>
+
+        <form onsubmit="return false;" style="margin: 0; padding: 0;">
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="credTinkerKey">Tinker Icons API Key <span class="text-secondary" style="font-size: 11px;">(Free at <a href="https://developers.tinker.audio" target="_blank" style="color: var(--accent-info);">developers.tinker.audio</a>)</span></label>
+            <input type="password" id="credTinkerKey" name="tinker_api_key" class="form-control" placeholder="X-Tinker-Key (Optional)" autocomplete="off">
+          </div>
+        </form>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <span class="text-secondary" id="tinkerStatusInline" style="font-size: 12px;">Ready to test developer key.</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testServiceConnection('tinker')" id="btnTestTinker">
+              🔌 Test API Key
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveTinkerSettings()" id="btnSaveTinker">
+              💾 Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 5: AI API Card (Visible in Bridge mode) -->
+      <div class="card settings-card" id="sectionAiConfig" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px; color: #a855f7;">✨ AI API (Chapter Pixel Synthesis)</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Generates custom 16×16 child-safe pixel art icons for chapters lacking official or community artwork.</p>
+          </div>
+          <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 11px;">Generative Fallback</span>
+        </div>
+
+        <form onsubmit="return false;" style="margin: 0; padding: 0;">
+          <div class="form-group">
+            <label for="credOpenRouterKey">OpenRouter API Key <span class="text-secondary" style="font-size: 11px;">(Recommended: Claude 3.5 Sonnet / Haiku)</span></label>
+            <input type="password" id="credOpenRouterKey" name="openrouter_api_key" class="form-control" placeholder="sk-or-•••••••• (Optional)" autocomplete="off">
+          </div>
+        </form>
+
+        <p class="text-secondary" style="font-size: 11px; margin-bottom: 16px;">
+          <strong>Resolution order:</strong> 1. Owned Yoto cards &rarr; 2. YotoIcons.com (0 keys) &rarr; 3. Tinker Icons &rarr; 4. AI pixel synthesis &rarr; 5. Book cover.
+        </p>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+          <span class="text-secondary" id="aiStatusInline" style="font-size: 12px;">Ready to test AI provider key.</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testServiceConnection('ai')" id="btnTestAi">
+              🔌 Test API Key
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="saveAiSettings()" id="btnSaveAi">
+              💾 Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Maintenance Card: Image Cache Maintenance -->
+      <div class="card settings-card" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">🖼️ Image Cache Maintenance</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Clear downscaled thumbnails and temporary cached icons to free disk space and force re-rendering.</p>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="purgeImageCache()">
+            🗑️ Purge Thumbnail Cache
+          </button>
+        </div>
+      </div>
+    </section>

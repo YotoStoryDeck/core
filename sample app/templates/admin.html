@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yoto & Audiobookshelf Controller Admin</title>
+  <link rel="stylesheet" href="/static/css/admin.css?v=20261029_19">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+  <!-- Top Navigation Bar -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-logo">📻</div>
+      <div class="brand-text">
+        <h1>Yoto-ESP32 Broker</h1>
+        <span class="badge badge-subtle">Admin Portal</span>
+      </div>
+    </div>
+    <div class="header-user" id="headerUserSection" style="display: none;">
+      <span class="user-greeting" id="userGreeting">Welcome, Admin</span>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <!-- Notification Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Modal Overlays -->
+  {% include 'admin/_modal_auth.html' %}
+  {% include 'admin/_modal_profile.html' %}
+  {% include 'admin/_modal_discovery.html' %}
+  {% include 'admin/_modal_curation_perms.html' %}
+  {% include 'admin/_modal_mass_edit.html' %}
+  {% include 'admin/_modal_tracklist.html' %}
+  {% include 'admin/_modal_icon_picker.html' %}
+  {% include 'admin/_modal_regenerate_key.html' %}
+
+  <!-- Main Application Container -->
+  <main class="app-main" id="mainApp" style="display: none;">
+    <div class="dashboard-tabs">
+      <button class="tab-btn active" data-tab="profiles" onclick="switchTab('profiles')">👶 Child Profiles</button>
+      <button class="tab-btn" data-tab="library" onclick="switchTab('library')">📚 Library</button>
+      <button class="tab-btn" data-tab="hardware" onclick="switchTab('hardware')">🖥️ Hardware Displays</button>
+      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings & Diagnostics</button>
+    </div>
+
+    <!-- Tab Contents -->
+    {% include 'admin/_tab_profiles.html' %}
+    {% include 'admin/_tab_library.html' %}
+    {% include 'admin/_tab_hardware.html' %}
+    {% include 'admin/_tab_settings.html' %}
+  </main>
+
+  <!-- Modularized Application Scripts -->
+  <script src="/static/js/admin/core.js?v=20261029_19"></script>
+  <script src="/static/js/admin/nav.js?v=20261029_19"></script>
+  <script src="/static/js/admin/profiles.js?v=20261029_19"></script>
+  <script src="/static/js/admin/library.js?v=20261029_19"></script>
+  <script src="/static/js/admin/mass_edit.js?v=20261029_19"></script>
+  <script src="/static/js/admin/tracklist.js?v=20261029_19"></script>
+  <script src="/static/js/admin/icons.js?v=20261029_19"></script>
+  <script src="/static/js/admin/permissions.js?v=20261029_19"></script>
+  <script src="/static/js/admin/hardware.js?v=20261029_19"></script>
+  <script src="/static/js/admin/settings.js?v=20261029_19"></script>
+</body>
+</html>

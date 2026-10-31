@@ -1,0 +1,70 @@
+<!-- 7. Tracklist Browser & Chapter Artwork Studio Modal (Feature 012) -->
+  <div class="modal-overlay" id="curationTracklistModal" style="display: none;">
+    <div class="modal-card" style="max-width: 760px; width: 100%;">
+      <div class="modal-header" style="display: flex; gap: 14px; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+        <img id="tracklistModalCover" src="" class="cover-thumb-sm" style="width: 64px; height: 64px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border-subtle);" alt="cover">
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+            <h2 id="tracklistModalTitle" style="font-size: 17px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Tracklist</h2>
+            <span id="tracklistModalTypeBadge" class="badge">Type</span>
+          </div>
+          <p id="tracklistModalAuthor" class="text-secondary" style="margin: 0; font-size: 13px;">Author</p>
+          <p id="tracklistModalStats" class="text-secondary" style="margin: 4px 0 0 0; font-size: 11px;">0 tracks</p>
+        </div>
+        <div id="tracklistModalActions" style="display: flex; gap: 8px;">
+          <!-- Populated via JS: Auto-match button for ABS/MYO, or Read-Only Notice for Retail -->
+        </div>
+      </div>
+
+      <!-- Quick Bulk Chapter / Track Renamer Drawer (Feature 012 Enhancement) -->
+      <div id="tracklistBatchRenameDrawer" style="display: none; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-top: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <strong style="font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+            📝 Bulk Update Track & Chapter Names
+          </strong>
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 1px 6px;" onclick="toggleBatchRenameDrawer(false)">✕ Close</button>
+        </div>
+        <p class="text-secondary" style="font-size: 11px; margin: 0 0 8px 0; line-height: 1.4;">
+          Paste a bullet list (<code>• Chapter 1: ...</code>), lines, or comma-delimited text. Click <strong>Preview Changes</strong> to inspect the pending titles in the table below before saving.
+        </p>
+        <textarea id="batchTrackNamesInput" class="form-control" rows="5" placeholder="• Chapter 1: To the Castle!&#10;• Chapter 2: The Dragon Stone&#10;• Chapter 3: More Dragons!&#10;..." style="font-family: monospace; font-size: 12px; line-height: 1.4; resize: vertical; margin-bottom: 8px;"></textarea>
+        
+        <!-- Pending preview banner (hidden until Preview is generated) -->
+        <div id="tracklistPendingBanner" style="display: none; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 12px; color: #fbbf24; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>⚠️</span>
+            <span id="tracklistPendingSummary">Previewing pending track name updates. Check table below.</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="revertPendingTrackNames()">↩ Revert</button>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="toggleBatchRenameDrawer(false)">Cancel</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnPreviewTrackNames" onclick="previewBatchTrackNames()">👁️ Preview Changes</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnSaveTrackNames" onclick="applyBatchTrackNames()" disabled style="opacity: 0.6;">💾 Save to Audiobookshelf</button>
+        </div>
+      </div>
+
+      <!-- Tracks Table Container -->
+      <div style="margin-top: 16px; flex: 1; overflow-y: auto; max-height: 420px;" class="custom-scrollbar">
+        <table class="data-table" style="width: 100%;" id="tracklistTable">
+          <thead>
+            <tr>
+              <th style="width: 44px; text-align: center;">#</th>
+              <th style="width: 54px; text-align: center;">Icon</th>
+              <th>Track Title</th>
+              <th style="width: 80px; text-align: right;">Duration</th>
+              <th style="width: 110px; text-align: center;">Artwork</th>
+            </tr>
+          </thead>
+          <tbody id="tracklistTableBody">
+            <!-- Populated dynamically via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+        <button type="button" class="btn btn-secondary" onclick="closeTracklistModal()">Done</button>
+      </div>
+    </div>
+  </div>

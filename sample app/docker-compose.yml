@@ -1,0 +1,32 @@
+services:
+  yoto-esp32-broker:
+    build: .
+    container_name: yoto-esp32-broker
+    restart: unless-stopped
+    ports:
+      - "5055:5055"
+    environment:
+      - PORT=5055
+      - ABS_BASE_URL=http://audiobookshelf:80
+      - ABS_API_KEY=${ABS_API_KEY}
+      - YOTO_CLIENT_ID=${YOTO_CLIENT_ID}
+      - YOTO_CLIENT_SECRET=${YOTO_CLIENT_SECRET}
+      - YOTO_REFRESH_TOKEN=${YOTO_REFRESH_TOKEN}
+      - YOTO_BRIDGE_URL=http://yoto-bridge:8080
+      - CACHE_DIR=/app/cache/thumbnails
+      - THUMBNAIL_SIZE=100
+      - AI_CHAPTER_ART_ENABLED=${AI_CHAPTER_ART_ENABLED:-false}
+      - AI_PROVIDER=${AI_PROVIDER:-openrouter}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-5-sonnet-20241022}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-stabilityai/stable-diffusion-xl-base-1.0}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-127.0.0.1}
+      - DB_PATH=/app/data/broker.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+
