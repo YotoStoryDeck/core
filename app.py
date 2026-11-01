@@ -42,16 +42,25 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-# Serve embedded firmware UI prototype simulator
-prototype_dir = base_dir.parent / "firmware" / "ui-prototypes"
+# Serve StoryDeck Touch web companion / simulator
+candidate_kiosk_dirs = [
+    base_dir.parent / "storydeck-touch" / "web-touch",
+    base_dir.parent / "touch" / "web-touch",
+    Path("/app/web-touch"),
+    base_dir / "static" / "kiosk"
+]
+prototype_dir = next((d for d in candidate_kiosk_dirs if d.is_dir()), base_dir.parent / "storydeck-touch" / "web-touch")
 
 @app.route("/simulator")
+@app.route("/kiosk")
 def redirect_simulator():
     from flask import redirect
     return redirect("/simulator/", code=301)
 
 @app.route("/simulator/")
 @app.route("/simulator/<path:filename>")
+@app.route("/kiosk/")
+@app.route("/kiosk/<path:filename>")
 def serve_simulator(filename="index.html"):
     from flask import send_from_directory
     return send_from_directory(str(prototype_dir), filename)
