@@ -21,18 +21,22 @@ permissions:
 
 jobs:
   release:
-    name: Build & Publish Release
+    name: Build & Package Core (with Web-Touch Assets)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout Core Code
         uses: actions/checkout@v4
         with:
+          path: core
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Checkout Touch Repository (for web-touch companion assets)
+        uses: actions/checkout@v4
         with:
-          python-version: '3.12'
+          repository: YotoStoryDeck/touch
+          ref: main
+          path: touch
+          fetch-depth: 1
 
       - name: Determine Tag & Release Classification
         id: meta
@@ -52,10 +56,16 @@ jobs:
           echo "prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
           echo "Resolved Tag: ${TAG} (Pre-release: ${IS_PRERELEASE})"
 
-      - name: Package Core Application Distribution
+      - name: Bundle Web-Touch Assets into Core Distribution
         run: |
-          mkdir -p dist
+          mkdir -p core/dist
+          # Bundle static web-touch assets directly into core static/kiosk directory
+          mkdir -p core/static/kiosk
+          cp -r touch/web-touch/* core/static/kiosk/
+          
+          # Create comprehensive self-contained distribution tarball
           PACKAGE_NAME="storydeck-core-${{ steps.meta.outputs.tag }}.tar.gz"
+          cd core
           tar --exclude='./venv' \
               --exclude='./.git' \
               --exclude='./.github' \
@@ -74,4 +84,4 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            dist/*
+            core/dist/*
