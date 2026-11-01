@@ -1,11 +1,32 @@
+# Python bytecode & environments
 __pycache__/
 *.py[cod]
-*.class
+*$py.class
+*.so
+venv/
+.venv/
+env/
+ENV/
+
+# Databases
 *.db
-!broker.db.example
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets & Local Environment
 .env
+.env.local
 .tmp/
+
+# StoryDeck Runtime Data & Caches (Mounted as Docker volumes)
+data/*
+!data/.gitkeep
+cache/*
+!cache/.gitkeep
+
+# Build & Dependencies
 node_modules/
 dist/
 build/
-venv/
+*.egg-info/
