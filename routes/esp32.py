@@ -500,9 +500,9 @@ def control_player():
             vol_val = max(0, min(100, int(volume)))
             if mode == "bridge" and active_bridge_url:
                 # Try /api/device/volume first, fall back to /api/yoto/volume
-            r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
-            if r.status_code == 404:
-                r = requests.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                if r.status_code == 404:
+                    r = requests.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
                 if r.status_code == 200:
                     logger.info("Player %s volume updated to %d%% via Bridge", device_id, vol_val)
                     return jsonify({"ok": True, "device_id": device_id, "volume": vol_val})
