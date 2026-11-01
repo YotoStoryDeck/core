@@ -6,12 +6,22 @@
           <p class="text-secondary">Control card visibility, seasonal highlights, and household shared rules.</p>
         </div>
         <div class="toolbar-actions" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-          <!-- Profile View Filter -->
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <label for="curationProfileFilter" style="font-size: 12px; margin: 0; color: var(--text-secondary); white-space: nowrap;">Viewing For:</label>
-            <select id="curationProfileFilter" class="form-control" style="width: auto; min-width: 150px;" onchange="onCurationProfileFilterChange()">
+          <!-- Profile View Filter (Custom Profile Dropdown with Avatar) -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 12px; margin: 0; color: var(--text-secondary); white-space: nowrap;">Viewing For:</label>
+            <div class="custom-profile-picker" id="curationProfilePicker">
+              <button type="button" class="custom-profile-btn" id="curationProfilePickerBtn" onclick="toggleCurationProfileDropdown(event)">
+                <span id="curationProfileSelectedAvatar" class="picker-avatar-slot"></span>
+                <span id="curationProfileSelectedLabel" style="font-size: 13px; font-weight: 500;">Household (All Profiles)</span>
+                <span class="picker-caret">&#9662;</span>
+              </button>
+              <div class="custom-profile-menu" id="curationProfileMenu" style="display: none;">
+                <!-- Dynamically populated profile options with real avatars -->
+              </div>
+            </div>
+            <!-- Hidden native select for backwards compatibility and state queries -->
+            <select id="curationProfileFilter" style="display: none;" onchange="onCurationProfileFilterChange()">
               <option value="all">Household (All Profiles)</option>
-              <!-- Dynamic child profile options inserted via JS -->
             </select>
           </div>
 

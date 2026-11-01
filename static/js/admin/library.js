@@ -28,24 +28,115 @@ async function loadMatrix() {
   }
 }
 
+function toggleCurationProfileDropdown(event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById("curationProfileMenu");
+  if (!menu) return;
+  const isHidden = menu.style.display === "none";
+  menu.style.display = isHidden ? "flex" : "none";
+}
+
+// Global click listener to close custom dropdown
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#curationProfilePicker")) {
+    const menu = document.getElementById("curationProfileMenu");
+    if (menu) menu.style.display = "none";
+  }
+});
+
+function selectCurationProfile(pKey) {
+  const select = document.getElementById("curationProfileFilter");
+  if (select) {
+    select.value = pKey;
+  }
+  updateCurationProfilePickerUI(pKey);
+  const menu = document.getElementById("curationProfileMenu");
+  if (menu) menu.style.display = "none";
+  onCurationProfileFilterChange();
+}
+
+function updateCurationProfilePickerUI(selectedKey) {
+  const labelEl = document.getElementById("curationProfileSelectedLabel");
+  const avatarSlot = document.getElementById("curationProfileSelectedAvatar");
+  if (!labelEl || !avatarSlot) return;
+
+  const monograms = typeof computeHouseholdMonograms === "function" ? computeHouseholdMonograms(currentProfiles) : {};
+
+  if (!selectedKey || selectedKey === "all") {
+    labelEl.textContent = "Household (All Profiles)";
+    avatarSlot.innerHTML = `<span style="font-size: 16px;">🏠</span>`;
+  } else {
+    const p = currentProfiles[selectedKey] || { display_name: selectedKey };
+    labelEl.textContent = p.display_name || selectedKey;
+    const monogram = p.avatar_initial || (monograms && monograms[selectedKey]) || (p.display_name || selectedKey || "C").trim().charAt(0).toUpperCase();
+    const avatarBg = typeof getAvatarColor === "function" ? getAvatarColor(p.display_name || selectedKey, p.avatar_color) : "#6366f1";
+    const fontSize = monogram.length > 1 ? "10px" : "12px";
+
+    if (p.avatar_url && !p.avatar_url.includes("avatar/placeholder")) {
+      avatarSlot.innerHTML = `<img src="${escapeHtml(p.avatar_url)}" alt="${escapeHtml(p.display_name || selectedKey)}" onerror="this.onerror=null;this.replaceWith(createInitialAvatarElement('${escapeHtml(monogram)}', '${avatarBg}', 22));" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--accent-info); flex-shrink: 0;">`;
+    } else {
+      avatarSlot.innerHTML = `<div style="width: 22px; height: 22px; border-radius: 50%; background: ${avatarBg}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: ${fontSize}; font-weight: 700; flex-shrink: 0;">${escapeHtml(monogram)}</div>`;
+    }
+  }
+
+  // Update active state in menu
+  document.querySelectorAll(".custom-profile-opt").forEach(opt => {
+    opt.classList.toggle("active", opt.dataset.profileKey === selectedKey);
+  });
+}
+
 function populateCurationProfileOptions() {
   const select = document.getElementById("curationProfileFilter");
+  const menu = document.getElementById("curationProfileMenu");
   if (!select) return;
-  const currentVal = select.value;
+  const currentVal = select.value || "all";
   select.innerHTML = '<option value="all">Household (All Profiles)</option>';
+
+  if (menu) {
+    menu.innerHTML = `
+      <div class="custom-profile-opt ${currentVal === 'all' ? 'active' : ''}" data-profile-key="all" onclick="selectCurationProfile('all')">
+        <span style="font-size: 16px;">🏠</span>
+        <span>Household (All Profiles)</span>
+      </div>
+    `;
+  }
+
+  const monograms = typeof computeHouseholdMonograms === "function" ? computeHouseholdMonograms(currentProfiles) : {};
 
   if (currentMatrix.profiles && currentMatrix.profiles.length > 0) {
     currentMatrix.profiles.forEach(pKey => {
       const p = currentProfiles[pKey] || { display_name: pKey };
       const opt = document.createElement("option");
       opt.value = pKey;
-      opt.textContent = `👶 ${p.display_name || pKey}`;
+      opt.textContent = p.display_name || pKey;
       select.appendChild(opt);
+
+      if (menu) {
+        const monogram = p.avatar_initial || (monograms && monograms[pKey]) || (p.display_name || pKey || "C").trim().charAt(0).toUpperCase();
+        const avatarBg = typeof getAvatarColor === "function" ? getAvatarColor(p.display_name || pKey, p.avatar_color) : "#6366f1";
+        const fontSize = monogram.length > 1 ? "10px" : "12px";
+
+        const avatarSnippet = (p.avatar_url && !p.avatar_url.includes("avatar/placeholder"))
+          ? `<img src="${escapeHtml(p.avatar_url)}" alt="${escapeHtml(p.display_name || pKey)}" onerror="this.onerror=null;this.replaceWith(createInitialAvatarElement('${escapeHtml(monogram)}', '${avatarBg}', 24));" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--accent-info); flex-shrink: 0;">`
+          : `<div style="width: 24px; height: 24px; border-radius: 50%; background: ${avatarBg}; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: ${fontSize}; font-weight: 700; flex-shrink: 0;">${escapeHtml(monogram)}</div>`;
+
+        const optDiv = document.createElement("div");
+        optDiv.className = `custom-profile-opt ${currentVal === pKey ? 'active' : ''}`;
+        optDiv.dataset.profileKey = pKey;
+        optDiv.onclick = () => selectCurationProfile(pKey);
+        optDiv.innerHTML = `
+          ${avatarSnippet}
+          <span style="font-weight: 500;">${escapeHtml(p.display_name || pKey)}</span>
+        `;
+        menu.appendChild(optDiv);
+      }
     });
   }
+
   if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
     select.value = currentVal;
   }
+  updateCurationProfilePickerUI(select.value);
   onCurationProfileFilterChange();
 }
 
