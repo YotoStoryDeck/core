@@ -347,10 +347,12 @@ def get_device_config():
         })
     settings = database.get_system_settings()
     exclude_single = bool(settings.get("exclude_single_card_series", True))
+    parent_pin = device.get("parent_pin", "") if device else ""
     return jsonify({
         "device_id": device_id or "unknown",
         "is_approved": is_approved,
         "assigned_profile": assigned_prof,
+        "parent_pin": parent_pin,
         "allow_profile_switch": len(profile_summaries) > 1,
         "exclude_single_card_series": exclude_single,
         "profiles": profile_summaries
@@ -407,11 +409,38 @@ def play_media():
         if mode == "bridge" and creds.get("yoto_bridge_url"):
             active_bridge_url = creds.get("yoto_bridge_url").rstrip("/")
             bridge_url = f"{active_bridge_url}/api/play"
+            # Check if this card has non-numeric hash/string keys (podcasts, radio stations, daily)
+            chapter_key = data.get("chapter_key")
+            track_key = data.get("track_key")
+            if not track_key or not chapter_key:
+                try:
+                    if clients.yoto_client:
+                        cdetail = clients.yoto_client.get_card_detail(media_id)
+                        if cdetail:
+                            c_obj = cdetail.get("content") or cdetail.get("card", {}).get("content") or {}
+                            chaps = c_obj.get("chapters", [])
+                            if chaps:
+                                t_idx = max(0, chapter - 1)
+                                if t_idx < len(chaps):
+                                    tgt = chaps[t_idx]
+                                    chapter_key = chapter_key or tgt.get("key")
+                                    trks = tgt.get("tracks", [])
+                                    if trks:
+                                        track_key = track_key or trks[0].get("key")
+                                    else:
+                                        track_key = track_key or tgt.get("key")
+                except Exception as ke:
+                    logger.debug("Notice extracting keys for %s: %s", media_id, ke)
+
             payload = {
                 "card_id": media_id,
                 "device_id": device_id,
                 "chapter": chapter
             }
+            if chapter_key:
+                payload["chapter_key"] = chapter_key
+            if track_key:
+                payload["track_key"] = track_key
             bridge_headers = {}
             if creds.get("yoto_bridge_api_key"):
                 bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
