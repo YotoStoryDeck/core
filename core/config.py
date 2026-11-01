@@ -1,5 +1,5 @@
 """
-Configuration constants and environment settings for Yoto-ESP32 Middleware Broker.
+Configuration constants and environment settings for StoryDeck Core.
 """
 
 import os
@@ -14,14 +14,31 @@ load_dotenv()
 
 # Setup logging
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+class WerkzeugPollingFilter(logging.Filter):
+    """
+    Suppresses repetitive high-frequency polling requests from noisy INFO logs
+    (e.g., /api/device/config, /health, /static/) down to DEBUG level.
+    """
+    def filter(self, record):
+        msg = record.getMessage()
+        # Filter high frequency polling endpoints
+        if any(p in msg for p in ("/api/device/config", "/health", "/api/devices/status")):
+            return record.levelno >= logging.WARNING
+        return True
+
+# Configure root logging
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("yoto_broker")
+logger = logging.getLogger("storydeck_core")
+
+# Apply filter to Werkzeug logger to quiet continuous HTTP 200 access pings
+logging.getLogger("werkzeug").addFilter(WerkzeugPollingFilter())
 
 # Core Environment Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "yoto_broker_secret_key_session_local_development_hex")
+SECRET_KEY = os.getenv("SECRET_KEY", "storydeck_core_secret_key_session_local_development_hex")
 PORT = int(os.getenv("PORT", "5055"))
 ABS_BASE_URL = os.getenv("ABS_BASE_URL", "http://audiobookshelf:80").rstrip("/")
 ABS_API_KEY = os.getenv("ABS_API_KEY", "")

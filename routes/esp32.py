@@ -411,20 +411,26 @@ def play_media():
             if creds.get("yoto_bridge_api_key"):
                 bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
             try:
+                logger.info("Routing Yoto card playback to Bridge (%s): card=%s, player=%s, ch=%d", bridge_url, media_id, device_id, chapter)
                 res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
                 if res.status_code in (200, 204):
+                    logger.info("Bridge accepted Yoto card play: HTTP %d (Status: playing)", res.status_code)
                     return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id})
-                logger.warning("Bridge returned status %d for Yoto card play: %s", res.status_code, res.text)
+                logger.warning("Bridge returned HTTP %d for Yoto card play: %s", res.status_code, res.text)
                 return jsonify({"ok": False, "error": f"Bridge rejected Yoto card playback (HTTP {res.status_code})"}), res.status_code
             except Exception as e:
-                logger.error("Failed to route Yoto card play to Bridge: %s", e)
+                logger.error("Failed to communicate with Yoto Bridge during card play: %s", e)
                 return jsonify({"ok": False, "error": f"Bridge communication error: {str(e)}"}), 502
         # 2. Direct Cloud Fallback
         if not clients.yoto_client:
+            logger.error("Yoto direct client not initialized; cannot fallback for card %s", media_id)
             return jsonify({"ok": False, "error": "Yoto client not initialized"}), 502
+        logger.info("Routing Yoto card play to direct Yoto Cloud API: card=%s, player=%s", media_id, device_id)
         success = clients.yoto_client.start_playback(device_id, media_id, chapter)
         if success:
+            logger.info("Direct Yoto Cloud accepted playback command for %s", device_id)
             return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id})
+        logger.error("Direct Yoto Cloud play command failed for player %s", device_id)
         return jsonify({"ok": False, "error": "Yoto player command failed"}), 502
     elif media_type == "abs":
         creds = database.get_api_credentials()
@@ -439,12 +445,14 @@ def play_media():
         if creds.get("yoto_bridge_api_key"):
             bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
         try:
+            logger.info("Routing Audiobookshelf playback to Bridge (%s): item=%s, player=%s, ch=%d", bridge_url, media_id, device_id, chapter)
             res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
             if res.status_code in (200, 204):
+                logger.info("Bridge accepted ABS stream dispatch: HTTP %d (Status: playing)", res.status_code)
                 return jsonify({"ok": True, "status": "playing", "type": "abs", "device_id": device_id})
-            logger.warning("Bridge returned status %d, checking direct slot mapping", res.status_code)
+            logger.warning("Bridge returned HTTP %d for ABS stream: %s", res.status_code, res.text)
         except Exception as e:
-            logger.error("Failed to route to Yoto Bridge: %s", e)
+            logger.error("Failed to route ABS stream to Yoto Bridge: %s", e)
         return jsonify({
             "ok": True,
             "status": "dispatched",

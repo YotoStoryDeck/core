@@ -190,7 +190,7 @@ def init_db():
             migrate_legacy_config(conn)
 
     except Exception as e:
-        logger.error("Database initialization failed: %s", e)
+        logger.critical("Database initialization failed: %s", e, exc_info=True)
         raise
     finally:
         conn.close()
