@@ -279,12 +279,14 @@ def get_device_config():
                                         chapter_title = curr[0].get("title", "")
                             except Exception as ce:
                                 logger.debug("Chapter/Author resolution notice: %s", ce)
+                        has_card = bool(item_id or d.get("now_playing"))
                         player_map[did] = {
                             "id": did,
                             "name": d.get("name") or "Yoto Player",
                             "online": bool(d.get("online")),
                             "status": d.get("status") or "idle",
                             "is_playing": is_playing,
+                            "has_card": has_card,
                             "now_playing": d.get("now_playing"),
                             "author": author,
                             "chapter_title": chapter_title,
@@ -461,3 +463,74 @@ def play_media():
             "device_id": device_id
         })
     return jsonify({"ok": False, "error": f"Unsupported media type '{media_type}'"}), 400
+
+@esp32_bp.route("/api/player/control", methods=["POST"])
+@require_device_jwt
+def control_player():
+    """
+    Unified playback control route for Touchscreen and hardware controllers.
+    Payload:
+      {
+        "device_id": "<player_device_id>",
+        "action": "pause" | "resume" | "stop" | "next" | "prev" | "volume",
+        "volume": 0-100 (for volume action)
+      }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    device_id = data.get("device_id")
+    action = data.get("action")
+    volume = data.get("volume")
+
+    if not device_id or not action:
+        return jsonify({"ok": False, "error": "device_id and action are required"}), 400
+
+    creds = database.get_api_credentials()
+    mode = creds.get("yoto_connection_mode", "bridge")
+    active_bridge_url = creds.get("yoto_bridge_url", YOTO_BRIDGE_URL).rstrip("/")
+
+    bridge_headers = {}
+    if creds.get("yoto_bridge_api_key"):
+        bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
+
+    try:
+        # 1. Volume Control
+        if action == "volume":
+            if volume is None:
+                return jsonify({"ok": False, "error": "volume (0-100) is required for volume action"}), 400
+            vol_val = max(0, min(100, int(volume)))
+            if mode == "bridge" and active_bridge_url:
+                r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                if r.status_code == 200:
+                    logger.info("Player %s volume updated to %d%% via Bridge", device_id, vol_val)
+                    return jsonify({"ok": True, "device_id": device_id, "volume": vol_val})
+                logger.warning("Bridge rejected volume command (%d): %s", r.status_code, r.text)
+                return jsonify({"ok": False, "error": f"Bridge volume error: {r.text}"}), r.status_code
+
+        # 2. Transport: Pause / Resume / Stop
+        elif action in ("pause", "resume", "stop"):
+            if mode == "bridge" and active_bridge_url:
+                r = requests.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
+                if r.status_code == 200:
+                    logger.info("Player %s transport action '%s' accepted by Bridge", device_id, action)
+                    return jsonify({"ok": True, "device_id": device_id, "action": action})
+                logger.warning("Bridge rejected control action %s (%d): %s", action, r.status_code, r.text)
+                return jsonify({"ok": False, "error": f"Bridge control error: {r.text}"}), r.status_code
+
+        # 3. Chapter Track Skip: Prev / Next
+        elif action in ("prev", "next"):
+            if mode == "bridge" and active_bridge_url:
+                r = requests.post(f"{active_bridge_url}/api/seek", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
+                if r.status_code == 200:
+                    logger.info("Player %s seek '%s' accepted by Bridge: %s", device_id, action, r.text)
+                    return jsonify({"ok": True, "device_id": device_id, "action": action, "data": r.json()})
+                logger.warning("Bridge rejected seek action %s (%d): %s", action, r.status_code, r.text)
+                return jsonify({"ok": False, "error": f"Bridge seek error: {r.text}"}), r.status_code
+
+        else:
+            return jsonify({"ok": False, "error": f"Unsupported action '{action}'"}), 400
+
+    except Exception as e:
+        logger.error("Player control dispatch error on %s (%s): %s", device_id, action, e)
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+    return jsonify({"ok": False, "error": "Command not handled"}), 500
