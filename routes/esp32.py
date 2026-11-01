@@ -293,7 +293,10 @@ def get_device_config():
                             "cover_url": cover_url,
                             "item_id": item_id,
                             "position": pos,
-                            "duration": d.get("duration")
+                            "duration": d.get("duration"),
+                            "volume": d.get("volume"),
+                            "volume_max": d.get("volume_max", 100),
+                            "day_mode": d.get("day_mode")
                         }
         elif clients.yoto_client:
             for d in clients.yoto_client.get_devices():
@@ -498,6 +501,25 @@ def control_player():
             if volume is None:
                 return jsonify({"ok": False, "error": "volume (0-100) is required for volume action"}), 400
             vol_val = max(0, min(100, int(volume)))
+
+            # Parent volume ceiling check & clamp
+            # Query bridge or cached status to ensure child cannot exceed parent-configured max limit
+            max_limit = 100
+            if mode == "bridge" and active_bridge_url:
+                try:
+                    s_res = requests.get(f"{active_bridge_url}/api/status", headers=bridge_headers, timeout=2)
+                    if s_res.status_code == 200:
+                        for d in s_res.json().get("devices", []):
+                            if d.get("id") == device_id:
+                                max_limit = d.get("volume_max", 100)
+                                break
+                except Exception as ve:
+                    logger.debug("Could not verify live volume_max from bridge: %s", ve)
+
+            if vol_val > max_limit:
+                logger.info("Volume request %d%% for player %s clamped to parent limit %d%%", vol_val, device_id, max_limit)
+                vol_val = max_limit
+
             if mode == "bridge" and active_bridge_url:
                 # Try /api/device/volume first, fall back to /api/yoto/volume
                 r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
