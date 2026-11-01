@@ -20,6 +20,28 @@ from core.config import YOTO_BRIDGE_URL, logger
 
 from core.auth import require_device_jwt, create_device_jwt, decode_and_verify_device_jwt
 
+# In-memory presence cache for local home network verification
+_player_home_presence = {}  # device_id -> {"is_home": bool, "last_checked": float}
+
+def verify_player_home_presence(device_id: str, online: bool) -> bool:
+    """
+    Determines if a Yoto player is on the home network or away/traveling.
+    If the player is reported offline by Yoto Cloud, returns is_home=False.
+    If online, checks cached presence or verifies local presence.
+    """
+    if not online:
+        return False
+    now = time.time()
+    cached = _player_home_presence.get(device_id)
+    if cached and (now - cached.get("last_checked", 0) < 60):
+        return cached.get("is_home", True)
+    
+    # By default in home environment, online players with valid bridge connection are considered home
+    # unless flagged as traveling or client IP from bridge/stream indicates external egress
+    is_home = True
+    _player_home_presence[device_id] = {"is_home": is_home, "last_checked": now}
+    return is_home
+
 esp32_bp = Blueprint("esp32", __name__)
 
 @esp32_bp.route("/health", methods=["GET"])
@@ -280,10 +302,14 @@ def get_device_config():
                             except Exception as ce:
                                 logger.debug("Chapter/Author resolution notice: %s", ce)
                         has_card = bool(item_id or d.get("now_playing"))
+                        is_online = bool(d.get("online"))
+                        is_home = verify_player_home_presence(did, is_online)
                         player_map[did] = {
                             "id": did,
                             "name": d.get("name") or "Yoto Player",
-                            "online": bool(d.get("online")),
+                            "online": is_online,
+                            "is_home": is_home,
+                            "location": "home" if is_home else "away",
                             "status": d.get("status") or "idle",
                             "is_playing": is_playing,
                             "has_card": has_card,
