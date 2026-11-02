@@ -36,8 +36,9 @@ function renderDevicesTable() {
       ? `<span class="badge badge-success">Approved</span>`
       : `<span class="badge badge-danger">Quarantined</span>`;
 
-    const actionBtns = d.is_approved
+        const actionBtns = d.is_approved
       ? `<button class="btn btn-secondary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)">Quarantine</button>
+         <button class="btn btn-secondary btn-sm" style="margin-left: 6px;" onclick="openResetPinModal('${escapeHtml(d.mac_address)}', '${escapeHtml(d.friendly_name)}')">🔑 Reset PIN</button>
          <button class="btn btn-danger btn-sm" style="margin-left: 6px;" onclick="revokeDeviceAccess('${escapeHtml(d.mac_address)}')">🔒 Revoke</button>`
       : `<button class="btn btn-primary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)">Approve Device</button>`;
 
@@ -101,5 +102,61 @@ async function assignDeviceProfile(mac, profileId) {
     showToast("Default profile assigned to device.");
   } catch (err) {
     showToast("Failed to assign profile.", "danger");
+  }
+}
+
+
+// ============================================================================
+// OTA PIN Reset Modal Logic
+// ============================================================================
+
+let currentResetPinMac = null;
+
+function openResetPinModal(mac, friendlyName) {
+  currentResetPinMac = mac;
+  const nameEl = document.getElementById("resetPinDeviceName");
+  const macEl = document.getElementById("resetPinDeviceMac");
+  const inputEl = document.getElementById("resetPinInput");
+  const modalEl = document.getElementById("resetDevicePinModal");
+
+  if (nameEl) nameEl.textContent = friendlyName || "Controller";
+  if (macEl) macEl.textContent = mac;
+  if (inputEl) inputEl.value = "1234";
+  if (modalEl) modalEl.style.display = "flex";
+}
+
+function closeResetPinModal() {
+  currentResetPinMac = null;
+  const modalEl = document.getElementById("resetDevicePinModal");
+  if (modalEl) modalEl.style.display = "none";
+}
+
+async function submitResetPin() {
+  if (!currentResetPinMac) return;
+  const inputEl = document.getElementById("resetPinInput");
+  const pin = (inputEl ? inputEl.value : "").trim();
+
+  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+    showToast("Parent PIN must be exactly 4 numeric digits.", "danger");
+    if (inputEl) inputEl.focus();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/devices/${encodeURIComponent(currentResetPinMac)}/reset-pin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: pin })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(`Parent PIN for ${currentResetPinMac} reset to ${pin}!`, "success");
+      closeResetPinModal();
+      loadDevices();
+    } else {
+      showToast(data.error || "Failed to reset device PIN.", "danger");
+    }
+  } catch (err) {
+    showToast("Network error resetting device PIN.", "danger");
   }
 }

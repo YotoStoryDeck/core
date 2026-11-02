@@ -62,6 +62,35 @@ def admin_revoke_device(mac_address: str):
     return jsonify({"ok": False, "error": "Device not found."}), 404
 
 
+@admin_discovery_bp.route("/api/admin/devices/<mac_address>/reset-pin", methods=["POST"])
+@require_admin
+def admin_reset_device_pin(mac_address: str):
+    """
+    Pushes an OTA PIN reset to the ESP32 controller.
+    Validates that the provided PIN is exactly 4 numeric digits.
+    Defaults to '1234' if none provided or left empty.
+    """
+    data = request.get_json(silent=True) or {}
+    new_pin = str(data.get("pin") or "1234").strip()
+    if not (len(new_pin) == 4 and new_pin.isdigit()):
+        return jsonify({"ok": False, "error": "Parent PIN must be exactly 4 numeric digits (e.g. 1234)."}), 400
+
+    dev = database.get_esp32_device(mac_address)
+    if not dev:
+        return jsonify({"ok": False, "error": "Device not found."}), 404
+
+    success = database.update_esp32_device(mac_address, {"parent_pin": new_pin})
+    if success:
+        logger.info("OTA Parent PIN reset for device %s to %s", mac_address, new_pin)
+        return jsonify({
+            "ok": True,
+            "mac": mac_address,
+            "parent_pin": new_pin,
+            "message": f"Parent PIN successfully reset to {new_pin}."
+        })
+    return jsonify({"ok": False, "error": "Failed to update device PIN."}), 500
+
+
 
 # ============================================================================
 # Discovery & Household Matching Endpoints

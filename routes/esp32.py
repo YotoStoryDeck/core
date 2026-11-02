@@ -577,24 +577,44 @@ def control_player():
 
             if mode == "bridge" and active_bridge_url:
                 # Try /api/device/volume first, fall back to /api/yoto/volume
-                r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
-                if r.status_code == 404:
-                    r = requests.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
-                if r.status_code == 200:
-                    logger.info("Player %s volume updated to %d%% via Bridge", device_id, vol_val)
+                try:
+                    r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                    if r.status_code == 404:
+                        r = requests.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                    if r.status_code == 200:
+                        logger.info("Player %s volume updated to %d%% via Bridge", device_id, vol_val)
+                        return jsonify({"ok": True, "device_id": device_id, "volume": vol_val})
+                    logger.warning("Bridge rejected volume command (%d): %s", r.status_code, r.text)
+                except Exception as be:
+                    logger.warning("Bridge volume connection error (%s), attempting direct cloud fallback", be)
+
+            # Direct Yoto Cloud Fallback for Volume
+            if clients.yoto_client:
+                logger.info("Routing volume (%d%%) for %s to direct Yoto Cloud API", vol_val, device_id)
+                ok = clients.yoto_client.set_volume(device_id, vol_val)
+                if ok:
                     return jsonify({"ok": True, "device_id": device_id, "volume": vol_val})
-                logger.warning("Bridge rejected volume command (%d): %s", r.status_code, r.text)
-                return jsonify({"ok": False, "error": f"Bridge volume error: {r.text}"}), r.status_code
+                return jsonify({"ok": False, "error": "Yoto Cloud volume command failed"}), 502
 
         # 2. Transport: Pause / Resume / Stop
         elif action in ("pause", "resume", "stop"):
             if mode == "bridge" and active_bridge_url:
-                r = requests.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
-                if r.status_code == 200:
-                    logger.info("Player %s transport action '%s' accepted by Bridge", device_id, action)
+                try:
+                    r = requests.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
+                    if r.status_code == 200:
+                        logger.info("Player %s transport action '%s' accepted by Bridge", device_id, action)
+                        return jsonify({"ok": True, "device_id": device_id, "action": action})
+                    logger.warning("Bridge rejected control action %s (%d): %s", action, r.status_code, r.text)
+                except Exception as be:
+                    logger.warning("Bridge control connection error (%s), attempting direct cloud fallback", be)
+
+            # Direct Yoto Cloud Fallback for Transport
+            if clients.yoto_client:
+                logger.info("Routing transport '%s' for %s to direct Yoto Cloud API", action, device_id)
+                ok = clients.yoto_client.send_transport_command(device_id, action)
+                if ok:
                     return jsonify({"ok": True, "device_id": device_id, "action": action})
-                logger.warning("Bridge rejected control action %s (%d): %s", action, r.status_code, r.text)
-                return jsonify({"ok": False, "error": f"Bridge control error: {r.text}"}), r.status_code
+                return jsonify({"ok": False, "error": f"Yoto Cloud '{action}' transport command failed"}), 502
 
         # 3. Chapter Track Skip: Prev / Next
         elif action in ("prev", "next"):

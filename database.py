@@ -133,6 +133,7 @@ def init_db():
                 jwt_secret TEXT DEFAULT '',
                 token_version INTEGER DEFAULT 1,
                 last_token_issued DATETIME,
+                parent_pin TEXT DEFAULT '',
                 last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (assigned_profile_id) REFERENCES profiles(id) ON DELETE SET NULL
@@ -200,7 +201,7 @@ def init_db():
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 def run_schema_migrations(conn: sqlite3.Connection):
     """
@@ -268,6 +269,16 @@ def run_schema_migrations(conn: sqlite3.Connection):
 
             conn.execute("PRAGMA user_version = 4;")
         logger.info("Migrated SQLite schema to version 4 (added JWT fields to esp32_devices, master_api_key).")
+
+    # Version 4 -> 5: Add parent_pin column to esp32_devices table for OTA PIN reset
+    if version < 5:
+        with conn:
+            cur.execute("PRAGMA table_info(esp32_devices);")
+            dev_columns = [col[1] for col in cur.fetchall()]
+            if "parent_pin" not in dev_columns:
+                conn.execute("ALTER TABLE esp32_devices ADD COLUMN parent_pin TEXT DEFAULT '';")
+            conn.execute("PRAGMA user_version = 5;")
+        logger.info("Migrated SQLite schema to version 5 (added parent_pin to esp32_devices).")
 
 
 # ============================================================================
@@ -723,7 +734,7 @@ def update_esp32_device(mac_address: str, updates: Dict[str, Any]) -> bool:
             for k in [
                 "friendly_name", "assigned_profile_id", "is_approved",
                 "target_firmware_version", "ota_status", "ota_progress", "ota_last_error",
-                "jwt_secret", "token_version", "last_token_issued"
+                "jwt_secret", "token_version", "last_token_issued", "parent_pin"
             ]:
                 if k in updates:
                     fields.append(f"{k} = ?")

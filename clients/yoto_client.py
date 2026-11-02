@@ -608,6 +608,54 @@ class YotoClient:
         selected_cards.sort(key=lambda x: re.sub(r"^(the|a|an)\s+", "", x["title"].strip(), flags=re.IGNORECASE).lower())
         return selected_cards
 
+    def set_volume(self, device_id: str, volume: int) -> bool:
+        """Sets playback volume level (0-100) on a target Yoto player via Yoto Cloud API."""
+        token = self.get_token()
+        if not token:
+            return False
+
+        vol_val = max(0, min(100, int(volume)))
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        # Yoto device command endpoints: POST /device-v2/{device_id}/command/volume/set or volume
+        # Also try volume endpoint
+        url = f"{self.API_URL}/device-v2/{device_id}/command/volume/set"
+        try:
+            res = requests.post(url, json={"volume": vol_val}, headers=headers, timeout=5)
+            if res.status_code in (200, 204):
+                logger.info("Successfully set volume to %d%% on Yoto %s via Cloud API", vol_val, device_id)
+                return True
+            if res.status_code == 404:
+                url_alt = f"{self.API_URL}/device-v2/{device_id}/command/volume"
+                res_alt = requests.post(url_alt, json={"volume": vol_val}, headers=headers, timeout=5)
+                if res_alt.status_code in (200, 204):
+                    logger.info("Successfully set volume to %d%% on Yoto %s via alt Cloud API", vol_val, device_id)
+                    return True
+            logger.warning("Yoto volume command rejected (%d): %s", res.status_code, res.text)
+        except Exception as e:
+            logger.error("Yoto volume dispatch error on %s: %s", device_id, e)
+        return False
+
+    def send_transport_command(self, device_id: str, action: str) -> bool:
+        """Sends transport control (pause, resume, stop) to target Yoto player via Yoto Cloud API."""
+        token = self.get_token()
+        if not token:
+            return False
+
+        if action not in ("pause", "resume", "stop"):
+            return False
+
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        url = f"{self.API_URL}/device-v2/{device_id}/command/card/{action}"
+        try:
+            res = requests.post(url, json={}, headers=headers, timeout=5)
+            if res.status_code in (200, 204):
+                logger.info("Successfully sent '%s' to Yoto %s via Cloud API", action, device_id)
+                return True
+            logger.warning("Yoto transport '%s' command rejected (%d): %s", action, res.status_code, res.text)
+        except Exception as e:
+            logger.error("Yoto transport command error on %s: %s", device_id, e)
+        return False
+
     def start_playback(self, device_id: str, card_id: str, chapter: int = 1) -> bool:
         """Triggers playback of a card on a target Yoto player."""
         token = self.get_token()

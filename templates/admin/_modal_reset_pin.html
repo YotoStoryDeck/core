@@ -1,0 +1,26 @@
+<!-- Modal: Reset Hardware Device PIN (OTA PIN Override) -->
+<div class="modal" id="resetDevicePinModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1050; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+  <div class="modal-content" style="max-width: 440px; width: 90%; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+      <span style="font-size: 26px;">🔒</span>
+      <h3 style="margin: 0; font-size: 18px; color: var(--text-primary);">Reset Grown-Ups PIN</h3>
+    </div>
+    <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+      Push an OTA PIN reset to <strong id="resetPinDeviceName" style="color:var(--text-primary);">Device</strong> (<code id="resetPinDeviceMac"></code>). The new PIN will sync over the local REST API and take effect immediately.
+    </p>
+    
+    <div style="margin-bottom: 20px;">
+      <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+        New 4-Digit Parent PIN:
+      </label>
+      <input type="text" id="resetPinInput" class="form-control" maxlength="4" placeholder="1234" value="1234" pattern="[0-9]{4}" style="font-size: 18px; letter-spacing: 4px; text-align: center; width: 140px; font-weight: 700;">
+      <small style="display: block; margin-top: 6px; color: var(--text-muted); font-size: 12px;">Default is <code>1234</code>. Must be exactly 4 digits.</small>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <button type="button" class="btn btn-secondary" onclick="closeResetPinModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitResetPin()">🔑 Reset PIN</button>
+    </div>
+  </div>
+</div>
+

@@ -52,14 +52,25 @@ candidate_kiosk_dirs = [
 prototype_dir = next((d for d in candidate_kiosk_dirs if d.is_dir()), base_dir.parent / "storydeck-touch" / "web-touch")
 
 @app.route("/simulator")
-@app.route("/kiosk")
 def redirect_simulator():
-    from flask import redirect
-    return redirect("/simulator/", code=301)
+    from flask import redirect, request
+    qs = request.query_string.decode("utf-8")
+    target = "/simulator/" + (f"?{qs}" if qs else "")
+    return redirect(target, code=301)
+
+@app.route("/kiosk")
+@app.route("/kiosk/")
+def redirect_kiosk():
+    from flask import redirect, request
+    qs = request.query_string.decode("utf-8")
+    if qs:
+        target = f"/simulator/?kiosk=1&{qs}"
+    else:
+        target = "/simulator/?kiosk=1"
+    return redirect(target, code=302)
 
 @app.route("/simulator/")
 @app.route("/simulator/<path:filename>")
-@app.route("/kiosk/")
 @app.route("/kiosk/<path:filename>")
 def serve_simulator(filename="index.html"):
     from flask import send_from_directory
