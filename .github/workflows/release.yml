@@ -27,6 +27,7 @@ jobs:
       - name: Checkout Core Code
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref }}
           path: core
           fetch-depth: 0
 
@@ -34,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: YotoStoryDeck/touch
-          ref: main
+          ref: ${{ github.ref_name == 'dev' && 'dev' || 'main' }}
           path: touch
           fetch-depth: 1
 
@@ -79,6 +80,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: StoryDeck Core ${{ steps.meta.outputs.tag }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           draft: false
