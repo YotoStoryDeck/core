@@ -437,8 +437,11 @@ def play_media():
             active_bridge_url = creds.get("yoto_bridge_url").rstrip("/")
             bridge_url = f"{active_bridge_url}/api/play"
             # Check if this card has non-numeric hash/string keys (podcasts, radio stations, daily)
-            chapter_key = data.get("chapter_key")
-            track_key = data.get("track_key")
+            # Strip bare numeric chapter_key/track_key (e.g. "1") so Bridge or cdetail resolves true "01" / hash keys
+            raw_ck = str(data.get("chapter_key") or "").strip()
+            raw_tk = str(data.get("track_key") or "").strip()
+            chapter_key = None if raw_ck.isdigit() else (raw_ck or None)
+            track_key = None if raw_tk.isdigit() else (raw_tk or None)
             if not track_key or not chapter_key:
                 try:
                     if clients.yoto_client:

@@ -451,9 +451,14 @@ def get_media_tracks_data(media_id: str) -> dict:
                     icon_display_url = ch_icon or cover_url
                     has_custom = bool(ch_icon)
 
+                ch_key = ch.get("key") or f"{idx + 1:02d}"
+                ch_trks = ch.get("tracks") or []
+                trk_key = (ch_trks[0].get("key") if ch_trks and isinstance(ch_trks[0], dict) else None) or ch_key
                 tracks.append({
                     "index": idx,
                     "track_number": idx + 1,
+                    "key": ch_key,
+                    "track_key": trk_key,
                     "title": ch.get("title") or f"Track {idx + 1}",
                     "duration_seconds": dur,
                     "duration_formatted": dur_str,
