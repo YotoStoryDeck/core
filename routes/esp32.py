@@ -177,7 +177,8 @@ def register_device():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac_address") or data.get("mac")
     friendly_name = data.get("friendly_name", "ESP32 Controller")
-    ip_addr = data.get("ip_address") or request.remote_addr or ""
+    # Prioritize explicit client IP from device payload, followed by reverse-proxy headers
+    ip_addr = data.get("ip_address") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or request.remote_addr or ""
     firmware_ver = data.get("firmware_version", "1.0.0")
     if not mac:
         return jsonify({"ok": False, "error": "Missing mac_address"}), 400

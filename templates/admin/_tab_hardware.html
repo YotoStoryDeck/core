@@ -1,9 +1,13 @@
 <!-- Tab 3: Hardware Displays & Quarantine -->
     <section class="tab-content" id="tab-hardware">
-      <div class="section-toolbar">
+      <div class="section-toolbar" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h2>Discovered Hardware Displays</h2>
           <p class="text-secondary">Review ESP32 bedside controllers, approve devices, and assign default profiles.</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary btn-sm" onclick="pingAllDevices()">📡 Ping All</button>
+          <button class="btn btn-secondary btn-sm" onclick="pruneStaleDevices()">🧹 Prune Inactive</button>
         </div>
       </div>
       <div class="card table-card">

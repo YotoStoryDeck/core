@@ -44,6 +44,37 @@ def admin_delete_device(mac_address: str):
     return jsonify({"ok": success})
 
 
+@admin_discovery_bp.route("/api/admin/devices/prune", methods=["POST"])
+@require_admin
+def admin_prune_devices():
+    """Purges unapproved devices that have not pinged or connected within 48 hours."""
+    data = request.get_json(silent=True) or {}
+    hours = int(data.get("hours", 48))
+    count = database.prune_stale_devices(hours=hours)
+    return jsonify({"ok": True, "pruned": count, "message": f"Pruned {count} stale device(s)."})
+
+
+@admin_discovery_bp.route("/api/admin/devices/<mac_address>/ping", methods=["GET"])
+@require_admin
+def admin_ping_device(mac_address: str):
+    """Actively probes device IP to test live reachability and update last_seen timestamp."""
+    dev = database.get_esp32_device(mac_address)
+    if not dev:
+        return jsonify({"ok": False, "error": "Device not found."}), 404
+    ip = dev.get("ip_address")
+    if not ip or ip.startswith("172.") or ip.startswith("127."):
+        return jsonify({"ok": False, "online": False, "error": f"Invalid or non-LAN IP: {ip}"}), 200
+    try:
+        # Probe touch web server /heap endpoint
+        res = requests.get(f"http://{ip}/heap", timeout=1.5)
+        if res.status_code == 200:
+            database.update_esp32_device(mac_address, {})  # updates last_seen = CURRENT_TIMESTAMP
+            return jsonify({"ok": True, "online": True, "ip": ip, "data": res.json()})
+    except Exception as e:
+        logger.debug("Ping device %s (%s) error: %s", mac_address, ip, e)
+    return jsonify({"ok": True, "online": False, "ip": ip, "error": "Host unreachable on port 80"}), 200
+
+
 @admin_discovery_bp.route("/api/admin/devices/<mac_address>/revoke", methods=["POST"])
 @require_admin
 def admin_revoke_device(mac_address: str):

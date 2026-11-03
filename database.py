@@ -783,6 +783,21 @@ def delete_esp32_device(mac_address: str) -> bool:
         conn.close()
 
 
+def prune_stale_devices(hours: int = 48) -> int:
+    """Purges unapproved or stale devices not seen in the last `hours`."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("""
+                DELETE FROM esp32_devices
+                WHERE is_approved = 0 AND last_seen < datetime('now', '-' || ? || ' hours');
+            """, (hours,))
+            return cur.rowcount
+    finally:
+        conn.close()
+
+
 # ============================================================================
 # Media Catalog & Highlights Matrix DAO
 # ============================================================================

@@ -36,23 +36,39 @@ function renderDevicesTable() {
       ? `<span class="badge badge-success">Approved</span>`
       : `<span class="badge badge-danger">Quarantined</span>`;
 
-        const actionBtns = d.is_approved
-      ? `<button class="btn btn-secondary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)">Quarantine</button>
-         <button class="btn btn-secondary btn-sm" style="margin-left: 6px;" onclick="openResetPinModal('${escapeHtml(d.mac_address)}', '${escapeHtml(d.friendly_name)}')">🔑 Reset PIN</button>
-         <button class="btn btn-danger btn-sm" style="margin-left: 6px;" onclick="revokeDeviceAccess('${escapeHtml(d.mac_address)}')">🔒 Revoke</button>`
-      : `<button class="btn btn-primary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)">Approve Device</button>`;
+            const ipDisplay = d.ip_address ? `<span id="ping-${d.mac_address.replace(/:/g, '')}">${escapeHtml(d.ip_address)}</span>` : "Unknown";
+
+    const pingBtn = `<button class="btn btn-secondary btn-sm" style="margin-left: 4px;" title="Ping Device" onclick="pingSingleDevice('${escapeHtml(d.mac_address)}')">📡</button>`;
+    const deleteBtn = `<button class="btn btn-danger btn-sm" style="margin-left: 4px;" title="Delete Device" onclick="deleteDevice('${escapeHtml(d.mac_address)}')">🗑️</button>`;
+
+    let actionBtns = "";
+    if (d.is_approved) {
+      actionBtns = `
+        <button class="btn btn-secondary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)">Quarantine</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left: 4px;" onclick="openResetPinModal('${escapeHtml(d.mac_address)}', '${escapeHtml(d.friendly_name)}')">🔑 PIN</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left: 4px;" onclick="revokeDeviceAccess('${escapeHtml(d.mac_address)}')">🔒 Revoke</button>
+        ${pingBtn}
+        ${deleteBtn}
+      `;
+    } else {
+      actionBtns = `
+        <button class="btn btn-primary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)">Approve Device</button>
+        ${pingBtn}
+        ${deleteBtn}
+      `;
+    }
 
     tr.innerHTML = `
       <td><strong>${escapeHtml(d.friendly_name)}</strong></td>
       <td><code>${escapeHtml(d.mac_address)}</code></td>
-      <td>${escapeHtml(d.ip_address || "Unknown")}</td>
+      <td>${ipDisplay}</td>
       <td>
         <select class="form-control" style="max-width: 200px;" onchange="assignDeviceProfile('${escapeHtml(d.mac_address)}', this.value)">
           ${profileOptions}
         </select>
       </td>
       <td>${statusBadge}</td>
-      <td>${actionBtns}</td>
+      <td style="white-space: nowrap;">${actionBtns}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -158,5 +174,84 @@ async function submitResetPin() {
     }
   } catch (err) {
     showToast("Network error resetting device PIN.", "danger");
+  }
+}
+
+
+// ============================================================================
+// Device Management (Delete, Ping, Prune)
+// ============================================================================
+
+async function deleteDevice(mac) {
+  if (!confirm(`Are you sure you want to remove device ${mac} from the controller list? If online, it will re-announce itself.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/admin/devices/${encodeURIComponent(mac)}`, {
+      method: "DELETE"
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(`Device ${mac} deleted.`, "success");
+      loadDevices();
+    } else {
+      showToast(data.error || "Failed to delete device.", "danger");
+    }
+  } catch (err) {
+    showToast("Network error deleting device.", "danger");
+  }
+}
+
+async function pingSingleDevice(mac) {
+  const elId = "ping-" + mac.replace(/:/g, "");
+  const el = document.getElementById(elId);
+  const origText = el ? el.textContent : "";
+  if (el) el.innerHTML = `${origText} <span class="spinner-border spinner-border-sm"></span>`;
+  try {
+    const res = await fetch(`/api/admin/devices/${encodeURIComponent(mac)}/ping`);
+    const data = await res.json();
+    if (res.ok && data.online) {
+      showToast(`Device ${mac} is ONLINE at ${data.ip}`, "success");
+      if (el) el.innerHTML = `${data.ip} <span style="color: #10b981; font-weight: bold;">● Online</span>`;
+    } else {
+      showToast(`Device ${mac} is OFFLINE (${data.error || 'unreachable'})`, "warning");
+      if (el) el.innerHTML = `${origText} <span style="color: #ef4444; font-weight: bold;">● Offline</span>`;
+    }
+  } catch (err) {
+    showToast(`Failed to ping ${mac}`, "danger");
+    if (el) el.textContent = origText;
+  }
+}
+
+async function pingAllDevices() {
+  if (!currentDevices || currentDevices.length === 0) {
+    showToast("No devices to ping.", "info");
+    return;
+  }
+  showToast(`Pinging ${currentDevices.length} device(s)...`, "info");
+  for (const d of currentDevices) {
+    await pingSingleDevice(d.mac_address);
+  }
+}
+
+async function pruneStaleDevices() {
+  if (!confirm("Are you sure you want to remove all unapproved devices that have been inactive for over 48 hours?")) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/admin/devices/prune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours: 48 })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(data.message || `Pruned ${data.pruned} inactive device(s).`, "success");
+      loadDevices();
+    } else {
+      showToast(data.error || "Failed to prune inactive devices.", "danger");
+    }
+  } catch (err) {
+    showToast("Network error pruning devices.", "danger");
   }
 }
