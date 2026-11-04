@@ -855,23 +855,59 @@ def get_catalog_matrix() -> Dict[str, Any]:
     finally:
         conn.close()
 def prune_stale_media_items(valid_ids: List[str], media_types: List[str] = None) -> int:
-    """Removes cached media_items of given types that are no longer present in upstream libraries."""
+    """Removes cached media_items of given types that are no longer present in upstream libraries, and deletes their cached cover/chapter images from disk."""
     if not valid_ids:
         return 0
     if media_types is None:
         media_types = ["abs", "yoto", "yoto_myo"]
     conn = get_db_connection()
+    stale_rows = []
+    removed_count = 0
     try:
         placeholders_types = ",".join("?" for _ in media_types)
         placeholders_ids = ",".join("?" for _ in valid_ids)
-        with conn:
-            cur = conn.execute(
-                f"DELETE FROM media_items WHERE type IN ({placeholders_types}) AND id NOT IN ({placeholders_ids});",
-                list(media_types) + list(valid_ids)
-            )
-            return cur.rowcount
+        params = list(media_types) + list(valid_ids)
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT id, type, cover_url FROM media_items WHERE type IN ({placeholders_types}) AND id NOT IN ({placeholders_ids});",
+            params
+        )
+        stale_rows = [dict(r) for r in cur.fetchall()]
+        if stale_rows:
+            with conn:
+                del_cur = conn.execute(
+                    f"DELETE FROM media_items WHERE type IN ({placeholders_types}) AND id NOT IN ({placeholders_ids});",
+                    params
+                )
+                removed_count = del_cur.rowcount
+                conn.execute(
+                    f"DELETE FROM profile_media_permissions WHERE media_id NOT IN (SELECT id FROM media_items);"
+                )
     finally:
         conn.close()
+
+    if stale_rows:
+        try:
+            from core.image_resizer import invalidate_thumbnail
+            from core.config import CUSTOM_ICONS_DIR
+            for sr in stale_rows:
+                sid = sr.get("id") or ""
+                scover = sr.get("cover_url") or ""
+                if sid:
+                    invalidate_thumbnail(f"abs_{sid}")
+                    for ch_idx in range(150):
+                        invalidate_thumbnail(f"abs_ch_{sid}_{ch_idx}")
+                    for icon_file in CUSTOM_ICONS_DIR.glob(f"{sid}_*.png"):
+                        try:
+                            icon_file.unlink()
+                        except Exception:
+                            pass
+                if scover:
+                    invalidate_thumbnail(f"yoto_{scover}")
+        except Exception as e:
+            logger.warning("Error cleaning up cached images for pruned media items: %s", e)
+
+    return removed_count
 def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> List[Dict[str, Any]]:
     """
     Retrieves filtered media catalog items for a child profile directly from SQLite cache.

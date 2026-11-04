@@ -10,9 +10,12 @@ from PIL import Image
 from core.config import CACHE_DIR, THUMBNAIL_SIZE, logger
 
 
+COMMON_THUMB_SIZES = (THUMBNAIL_SIZE, 50, 64, 100, 130, 160, 170, 200, 210, 240, 300, 320, 512, 784)
+
+
 def invalidate_thumbnail(cache_key: str, size: Optional[int] = None) -> None:
     """Removes cached thumbnail files from disk for cache_key across common sizes and crop modes."""
-    sizes = [size] if size is not None else [THUMBNAIL_SIZE, 100, 200, 300, 50, 784]
+    sizes = [size] if size is not None else list(COMMON_THUMB_SIZES)
     for s in set(sizes):
         for crop in (True, False, None):
             crop_str = f"_crop{crop}" if crop is not None else ""
@@ -23,6 +26,47 @@ def invalidate_thumbnail(cache_key: str, size: Optional[int] = None) -> None:
                     cached_path.unlink()
                 except Exception as e:
                     logger.warning("Failed to invalidate thumbnail %s: %s", cached_path, e)
+
+
+def prune_orphan_thumbnails(valid_items: list) -> int:
+    """
+    Scans CACHE_DIR and deletes any orphaned .jpg thumbnail files that do not belong
+    to any active media item in `valid_items` (each dict having `id`, `type`, `cover_url`).
+    """
+    if not valid_items:
+        return 0
+    valid_hashes = set()
+    for it in valid_items:
+        mid = str(it.get("id") or "").strip()
+        mtype = str(it.get("type") or "").strip()
+        curl = str(it.get("cover_url") or "").strip()
+        keys = []
+        if mid:
+            keys.append(f"abs_{mid}")
+            # Also preserve up to 150 chapter icons per active item
+            for ch_idx in range(150):
+                keys.append(f"abs_ch_{mid}_{ch_idx}")
+        if curl:
+            keys.append(f"yoto_{curl}")
+        for k in keys:
+            for s in COMMON_THUMB_SIZES:
+                for crop in (True, False, None):
+                    crop_str = f"_crop{crop}" if crop is not None else ""
+                    h = hashlib.sha256(f"{k}_{s}{crop_str}".encode()).hexdigest()[:24]
+                    valid_hashes.add(f"{h}.jpg")
+
+    removed = 0
+    try:
+        for f in CACHE_DIR.glob("*.jpg"):
+            if f.name not in valid_hashes:
+                try:
+                    f.unlink()
+                    removed += 1
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning("Error scanning CACHE_DIR for orphan thumbnails: %s", e)
+    return removed
 
 
 def get_thumbnail(cache_key: str, fetch_callable, size: int = THUMBNAIL_SIZE, crop: bool = True) -> Optional[Path]:

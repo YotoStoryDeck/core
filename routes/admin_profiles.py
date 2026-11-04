@@ -36,20 +36,87 @@ def _materialize_avatar_bytes_to_disk(pid: str, raw_bytes: bytes) -> Optional[st
         img = img.resize((160, 160), Image.Resampling.LANCZOS)
         avatar_path = AVATARS_DIR / f"{pid}.jpg"
         img.save(avatar_path, format="JPEG", quality=85, optimize=False, progressive=False)
+        bubble_path = AVATARS_DIR / f"{pid}_bubble.jpg"
+        if bubble_path.exists():
+            try:
+                bubble_path.unlink()
+            except Exception:
+                pass
         return f"/api/avatar/{pid}?t={int(avatar_path.stat().st_mtime)}"
     except Exception as e:
         logger.warning("Failed to materialize avatar for %s: %s", pid, e)
         return None
 
 
+def prune_stale_profile_avatars() -> int:
+    """Deletes any orphaned avatar files in AVATARS_DIR whose profile ID no longer exists in SQLite."""
+    valid_pids = set(database.get_all_profiles().keys())
+    removed = 0
+    try:
+        for p in AVATARS_DIR.glob("*.jpg"):
+            stem = p.stem
+            if stem.endswith("_bubble"):
+                stem = stem[:-7]
+            if stem not in valid_pids:
+                try:
+                    p.unlink()
+                    removed += 1
+                except Exception as e:
+                    logger.warning("Failed to remove stale avatar file %s: %s", p, e)
+    except Exception as e:
+        logger.warning("Error scanning AVATARS_DIR for stale files: %s", e)
+    return removed
+
+
+def sync_all_bubble_avatars() -> None:
+    """
+    Re-renders and saves custom colored bubble JPEGs (`{pid}_bubble.jpg`) for all profiles
+    that do not have a custom photo (`{pid}.jpg`), and updates their `avatar_url` with a fresh
+    `?t=<mtime>` cache-buster whenever the color or household monogram changes.
+    Also prunes any orphaned files in AVATARS_DIR.
+    """
+    prune_stale_profile_avatars()
+    profiles = database.get_all_profiles()
+    monograms = compute_household_monograms()
+    for pid, pdata in profiles.items():
+        custom_photo_path = AVATARS_DIR / f"{pid}.jpg"
+        bubble_path = AVATARS_DIR / f"{pid}_bubble.jpg"
+        if custom_photo_path.exists():
+            if bubble_path.exists():
+                try:
+                    bubble_path.unlink()
+                except Exception:
+                    pass
+            continue
+
+        display_name = pdata.get("display_name", pid.title())
+        custom_color = pdata.get("avatar_color") or None
+        custom_mono = pdata.get("avatar_initial") or monograms.get(pid)
+        try:
+            buf = generate_initial_avatar(display_name, monogram=custom_mono, custom_color=custom_color, size=160)
+            new_bytes = buf.getvalue()
+            old_bytes = bubble_path.read_bytes() if bubble_path.exists() else None
+            if old_bytes != new_bytes:
+                bubble_path.write_bytes(new_bytes)
+            mtime = int(bubble_path.stat().st_mtime)
+            target_url = f"/api/avatar/{pid}?t={mtime}"
+            if pdata.get("avatar_url") != target_url:
+                pdata["avatar_url"] = target_url
+                database.upsert_profile(pid, pdata)
+        except Exception as e:
+            logger.warning("Failed to generate bubble avatar on disk for %s: %s", pid, e)
+
+
 @admin_profiles_bp.route("/api/admin/profiles/<profile_id>", methods=["PUT"])
 @require_admin
 def admin_upsert_profile(profile_id: str):
-    """Creates or updates a child profile."""
+    """Creates or updates a child profile, materializes custom or bubble avatars, and prunes stale avatar files."""
     import base64
     pid = profile_id.lower().strip()
     data = request.get_json(silent=True) or {}
     av_url = str(data.get("avatar_url") or "").strip()
+    custom_photo_path = AVATARS_DIR / f"{pid}.jpg"
+
     if av_url.startswith("data:image/") and ";base64," in av_url:
         try:
             b64_part = av_url.split(";base64,", 1)[1]
@@ -68,15 +135,33 @@ def admin_upsert_profile(profile_id: str):
                     data["avatar_url"] = normalized
         except Exception as e:
             logger.warning("Failed downloading remote avatar for %s: %s", pid, e)
+    elif not av_url:
+        # User cleared the custom photo or opted for the colored bubble avatar: remove stale custom photo file
+        if custom_photo_path.exists():
+            try:
+                custom_photo_path.unlink()
+            except Exception as e:
+                logger.warning("Failed to delete cleared custom avatar %s: %s", custom_photo_path, e)
+
     success = database.upsert_profile(pid, data)
-    return jsonify({"ok": success, "avatar_url": data.get("avatar_url", "")})
+    sync_all_bubble_avatars()
+    updated_prof = database.get_profile_by_id(pid) or data
+    return jsonify({"ok": success, "avatar_url": updated_prof.get("avatar_url", "")})
 
 
 @admin_profiles_bp.route("/api/admin/profiles/<profile_id>", methods=["DELETE"])
 @require_admin
 def admin_delete_profile(profile_id: str):
-    """Deletes a child profile."""
-    success = database.delete_profile(profile_id.lower().strip())
+    """Deletes a child profile and removes its cached avatar files from disk."""
+    pid = profile_id.lower().strip()
+    success = database.delete_profile(pid)
+    for p in (AVATARS_DIR / f"{pid}.jpg", AVATARS_DIR / f"{pid}_bubble.jpg"):
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    sync_all_bubble_avatars()
     return jsonify({"ok": success})
 
 
@@ -211,7 +296,7 @@ def compute_household_monograms() -> Dict[str, str]:
 
 
 def generate_initial_avatar(name_or_id: str, monogram: Optional[str] = None, custom_color: Optional[str] = None, size: int = 160) -> io.BytesIO:
-    """Generates an in-memory JPEG avatar with a selected or hashed background color and 1-2 letter monogram."""
+    """Generates a baseline RGB JPEG avatar with the profile's selected/hashed background color and 1-2 letter monogram."""
     from PIL import ImageDraw, ImageFont
 
     clean_str = (name_or_id or "Child").strip()
@@ -228,26 +313,37 @@ def generate_initial_avatar(name_or_id: str, monogram: Optional[str] = None, cus
             h = (h * 31 + ord(c)) & 0xFFFFFFFF
         color_hex = PALETTE_COLORS[h % len(PALETTE_COLORS)]
 
-    img = Image.new("RGB", (size, size), color=color_hex)
+    # Render at 2x supersampled resolution for crisp anti-aliased typography
+    ss = size * 2
+    img = Image.new("RGB", (ss, ss), color=color_hex)
     draw = ImageDraw.Draw(img)
 
     # Scale font size based on 1 vs 2 letters
-    font_size = int(size * (0.42 if len(text) > 1 else 0.52))
-    try:
-        font = ImageFont.load_default(size=font_size)
-    except TypeError:
-        font = ImageFont.load_default()
+    font_size = int(ss * (0.42 if len(text) > 1 else 0.52))
+    font = None
+    for font_candidate in ("arialbd.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "segoeui.ttf"):
+        try:
+            font = ImageFont.truetype(font_candidate, font_size)
+            break
+        except Exception:
+            pass
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=font_size)
+        except TypeError:
+            font = ImageFont.load_default()
 
     bbox = font.getbbox(text)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
-    x = (size - text_w) // 2 - bbox[0]
-    y = (size - text_h) // 2 - bbox[1]
+    x = (ss - text_w) // 2 - bbox[0]
+    y = (ss - text_h) // 2 - bbox[1]
 
     draw.text((x, y), text, font=font, fill=(255, 255, 255))
+    img = img.resize((size, size), Image.Resampling.LANCZOS)
 
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    img.save(buf, format="JPEG", quality=90, optimize=False, progressive=False)
     buf.seek(0)
     return buf
 
@@ -301,7 +397,27 @@ def serve_profile_avatar(profile_id: str):
             logger.warning("Error serving resized avatar for %s: %s", pid, e)
             return send_file(avatar_path, mimetype="image/jpeg", max_age=86400)
 
-    # Default fallback: generate a colored letter avatar using household monogram & custom color
+    # Serve or materialize the custom-generated colored bubble JPEG on disk ({pid}_bubble.jpg)
+    bubble_path = AVATARS_DIR / f"{pid}_bubble.jpg"
+    if not bubble_path.exists() and profile:
+        sync_all_bubble_avatars()
+
+    if bubble_path.exists():
+        try:
+            img = Image.open(bubble_path)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            if img.size != (target_size, target_size):
+                img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90, optimize=False, progressive=False)
+            buf.seek(0)
+            return send_file(buf, mimetype="image/jpeg", max_age=86400)
+        except Exception as e:
+            logger.warning("Error serving bubble avatar for %s: %s", pid, e)
+            return send_file(bubble_path, mimetype="image/jpeg", max_age=86400)
+
+    # Default fallback for unknown profile ID
     display_name = profile.get("display_name", pid.title()) if profile else pid.title()
     custom_color = profile.get("avatar_color") if profile else None
     custom_mono = profile.get("avatar_initial") if profile else None

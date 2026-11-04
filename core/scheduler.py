@@ -147,6 +147,19 @@ def perform_library_refresh() -> int:
         pruned_count = database.prune_stale_media_items(valid_ids, ["abs", "yoto", "yoto_myo"])
         if pruned_count > 0:
             logger.info("Background library refresh pruned %d stale media items.", pruned_count)
+        try:
+            from core.image_resizer import prune_orphan_thumbnails
+            orphan_thumbs = prune_orphan_thumbnails(discovered_items)
+            if orphan_thumbs > 0:
+                logger.info("Pruned %d orphaned thumbnail images from disk cache.", orphan_thumbs)
+        except Exception as e:
+            logger.debug("Orphan thumbnail sweep notice: %s", e)
+
+    try:
+        from routes.admin_profiles import sync_all_bubble_avatars
+        sync_all_bubble_avatars()
+    except Exception as e:
+        logger.debug("Avatar bubble sync notice: %s", e)
 
     _last_refresh_time = time.time()
     _last_refresh_count = count

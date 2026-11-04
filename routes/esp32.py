@@ -102,6 +102,14 @@ def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
         mtime = int(avatar_path.stat().st_mtime)
         return f"/api/avatar/{pid}?t={mtime}", True
 
+    bubble_path = AVATARS_DIR / f"{pid}_bubble.jpg"
+    if not bubble_path.exists():
+        from routes.admin_profiles import sync_all_bubble_avatars
+        sync_all_bubble_avatars()
+    if bubble_path.exists():
+        mtime = int(bubble_path.stat().st_mtime)
+        return f"/api/avatar/{pid}?t={mtime}", False
+
     has_custom = bool(raw_av and not raw_av.endswith(f"/api/avatar/{pid}"))
     return (raw_av or f"/api/avatar/{pid}"), has_custom
 
