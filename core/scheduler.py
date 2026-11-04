@@ -119,18 +119,21 @@ def perform_library_refresh() -> int:
                             primary_series = series_list[0]["name"] if series_list else ""
                             primary_order = series_list[0]["order"] if series_list else ""
 
+                            upd_ts = int((b.get("updatedAt") or 0) // 1000) if b.get("updatedAt") else 0
+                            cover_qs = f"&v={upd_ts}" if upd_ts > 0 else ""
                             discovered_items.append({
                                 "id": b.get("id"),
                                 "type": "abs",
                                 "title": meta.get("title") or b.get("name") or "Book",
                                 "author": meta.get("authorName") or meta.get("author") or "Unknown",
-                                "cover_url": f"/api/thumb?type=abs&id={b.get('id')}",
+                                "cover_url": f"/api/thumb?type=abs&id={b.get('id')}{cover_qs}",
                                 "raw_metadata": {
                                     "tags": tags,
                                     "library_id": lib_id,
                                     "series": primary_series,
                                     "series_order": primary_order,
-                                    "series_list": series_list
+                                    "series_list": series_list,
+                                    "updated_at_ts": upd_ts
                                 }
                             })
                 except Exception as e:

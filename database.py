@@ -712,19 +712,27 @@ def prune_stale_devices(hours: int = 48) -> int:
 # Media Catalog & Highlights Matrix DAO
 # ============================================================================
 def upsert_media_items(items: List[Dict[str, Any]]) -> int:
-    """Caches discovered Yoto cards or ABS books into media_items table."""
+    """Caches discovered Yoto cards or ABS books into media_items table, invalidating cached thumbnails whenever an item's cover changes."""
     conn = get_db_connection()
     count = 0
+    changed_covers = []
     try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, type, cover_url FROM media_items;")
+        existing_covers = {r["id"]: (r["type"], r["cover_url"] or "") for r in cur.fetchall()}
         with conn:
             for it in items:
                 m_id = it.get("id")
                 m_type = it.get("type", "yoto")
                 title = it.get("title", "")
                 author = it.get("author", "")
-                cover = it.get("cover_url", it.get("thumb", ""))
+                cover = it.get("cover_url", it.get("thumb", "")) or ""
                 is_hi = 1 if it.get("is_highlight", False) else 0
                 raw = json.dumps(it.get("raw_metadata") or it)
+                if m_id in existing_covers:
+                    old_type, old_cover = existing_covers[m_id]
+                    if old_cover and old_cover != cover:
+                        changed_covers.append((m_id, old_type, old_cover))
                 conn.execute("""
                 INSERT INTO media_items (id, type, title, author, cover_url, is_highlight, raw_metadata, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -737,6 +745,16 @@ def upsert_media_items(items: List[Dict[str, Any]]) -> int:
                     updated_at = CURRENT_TIMESTAMP;
                 """, (m_id, m_type, title, author, cover, is_hi, raw))
                 count += 1
+        if changed_covers:
+            try:
+                from core.image_resizer import invalidate_thumbnail
+                for cid, ctype, old_c in changed_covers:
+                    invalidate_thumbnail(f"abs_{cid}")
+                    if old_c:
+                        invalidate_thumbnail(f"yoto_{old_c}")
+                logger.info("Invalidated cached thumbnails for %d updated media covers.", len(changed_covers))
+            except Exception as e:
+                logger.warning("Failed invalidating changed cover thumbnails: %s", e)
         return count
     finally:
         conn.close()
@@ -971,16 +989,19 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
                     "sequence_display": sub_seq_disp
                 })
         cover_url = it.get("cover_url") or ""
+        import hashlib
+        cover_v = hashlib.sha256(cover_url.encode("utf-8")).hexdigest()[:8] if cover_url else "1"
         if media_type == "yoto":
             if cover_url and not cover_url.startswith("/api/thumb"):
                 import urllib.parse
-                thumb = f"/api/thumb?type=yoto&id={it.get('id', '')}&url={urllib.parse.quote(cover_url)}"
+                thumb = f"/api/thumb?type=yoto&id={it.get('id', '')}&url={urllib.parse.quote(cover_url)}&v={cover_v}"
             elif not cover_url:
-                thumb = f"/api/thumb?type=yoto&id={it.get('id', '')}"
+                thumb = f"/api/thumb?type=yoto&id={it.get('id', '')}&v={cover_v}"
             else:
-                thumb = cover_url
+                thumb = cover_url if "v=" in cover_url else f"{cover_url}{'&' if '?' in cover_url else '?'}v={cover_v}"
         else:
-            thumb = cover_url or f"/api/thumb?type=abs&id={it.get('id', '')}"
+            base_t = cover_url or f"/api/thumb?type=abs&id={it.get('id', '')}"
+            thumb = base_t if "v=" in base_t else f"{base_t}{'&' if '?' in base_t else '?'}v={cover_v}"
         entry = {
             "id": it.get("id"),
             "type": "abs" if m_type == "abs" else "yoto",
