@@ -22,13 +22,54 @@ def admin_get_profiles():
     return jsonify(database.get_all_profiles())
 
 
+def _materialize_avatar_bytes_to_disk(pid: str, raw_bytes: bytes) -> Optional[str]:
+    """Center-crops, resizes to 160x160 baseline RGB JPEG, writes AVATARS_DIR/{pid}.jpg, and returns /api/avatar/{pid}?t=..."""
+    try:
+        img = Image.open(io.BytesIO(raw_bytes))
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        w, h = img.size
+        min_dim = min(w, h)
+        left = (w - min_dim) // 2
+        top = (h - min_dim) // 2
+        img = img.crop((left, top, left + min_dim, top + min_dim))
+        img = img.resize((160, 160), Image.Resampling.LANCZOS)
+        avatar_path = AVATARS_DIR / f"{pid}.jpg"
+        img.save(avatar_path, format="JPEG", quality=85, optimize=False, progressive=False)
+        return f"/api/avatar/{pid}?t={int(avatar_path.stat().st_mtime)}"
+    except Exception as e:
+        logger.warning("Failed to materialize avatar for %s: %s", pid, e)
+        return None
+
+
 @admin_profiles_bp.route("/api/admin/profiles/<profile_id>", methods=["PUT"])
 @require_admin
 def admin_upsert_profile(profile_id: str):
     """Creates or updates a child profile."""
+    import base64
+    pid = profile_id.lower().strip()
     data = request.get_json(silent=True) or {}
-    success = database.upsert_profile(profile_id.lower().strip(), data)
-    return jsonify({"ok": success})
+    av_url = str(data.get("avatar_url") or "").strip()
+    if av_url.startswith("data:image/") and ";base64," in av_url:
+        try:
+            b64_part = av_url.split(";base64,", 1)[1]
+            raw_bytes = base64.b64decode(b64_part)
+            normalized = _materialize_avatar_bytes_to_disk(pid, raw_bytes)
+            if normalized:
+                data["avatar_url"] = normalized
+        except Exception as e:
+            logger.warning("Failed decoding base64 avatar for %s: %s", pid, e)
+    elif av_url.startswith("http://") or av_url.startswith("https://"):
+        try:
+            res = requests.get(av_url, timeout=8)
+            if res.status_code == 200 and res.content:
+                normalized = _materialize_avatar_bytes_to_disk(pid, res.content)
+                if normalized:
+                    data["avatar_url"] = normalized
+        except Exception as e:
+            logger.warning("Failed downloading remote avatar for %s: %s", pid, e)
+    success = database.upsert_profile(pid, data)
+    return jsonify({"ok": success, "avatar_url": data.get("avatar_url", "")})
 
 
 @admin_profiles_bp.route("/api/admin/profiles/<profile_id>", methods=["DELETE"])
@@ -213,31 +254,52 @@ def generate_initial_avatar(name_or_id: str, monogram: Optional[str] = None, cus
 
 @admin_profiles_bp.route("/api/avatar/<profile_id>", methods=["GET"])
 def serve_profile_avatar(profile_id: str):
-    """Serves the optimized avatar JPEG for the ESP32 and web dashboard."""
+    """Serves the optimized baseline RGB avatar JPEG (supporting ?size=W for ESP32 JPEGDEC)."""
+    import base64
     pid = profile_id.lower().strip()
-    avatar_path = AVATARS_DIR / f"{pid}.jpg"
-    if avatar_path.exists():
-        return send_file(avatar_path, mimetype="image/jpeg", max_age=86400)
+    req_size = request.args.get("size", type=int)
+    target_size = max(24, min(512, req_size)) if req_size else 160
 
-    # If no local uploaded avatar, check if a remote avatar_url is configured on profile
+    avatar_path = AVATARS_DIR / f"{pid}.jpg"
     profile = database.get_profile_by_id(pid)
-    if profile and profile.get("avatar_url") and profile["avatar_url"].startswith("http"):
+
+    # If avatar_path does not exist yet, check if profile["avatar_url"] has data:image/... or http...
+    if not avatar_path.exists() and profile and profile.get("avatar_url"):
+        av_url = str(profile["avatar_url"]).strip()
+        if av_url.startswith("data:image/") and ";base64," in av_url:
+            try:
+                raw_bytes = base64.b64decode(av_url.split(";base64,", 1)[1])
+                norm = _materialize_avatar_bytes_to_disk(pid, raw_bytes)
+                if norm:
+                    profile["avatar_url"] = norm
+                    database.upsert_profile(pid, profile)
+            except Exception:
+                pass
+        elif av_url.startswith("http://") or av_url.startswith("https://"):
+            try:
+                res = requests.get(av_url, timeout=8)
+                if res.status_code == 200 and res.content:
+                    norm = _materialize_avatar_bytes_to_disk(pid, res.content)
+                    if norm:
+                        profile["avatar_url"] = norm
+                        database.upsert_profile(pid, profile)
+            except Exception:
+                pass
+
+    if avatar_path.exists():
         try:
-            res = requests.get(profile["avatar_url"], timeout=8)
-            if res.status_code == 200:
-                img = Image.open(io.BytesIO(res.content))
-                if img.mode != "RGB":
-                    img = img.convert("RGB")
-                w, h = img.size
-                min_dim = min(w, h)
-                left = (w - min_dim) // 2
-                top = (h - min_dim) // 2
-                img = img.crop((left, top, left + min_dim, top + min_dim))
-                img.thumbnail((160, 160), Image.Resampling.LANCZOS)
-                img.save(avatar_path, format="JPEG", quality=85)
-                return send_file(avatar_path, mimetype="image/jpeg", max_age=86400)
-        except Exception:
-            pass
+            img = Image.open(avatar_path)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            if img.size != (target_size, target_size):
+                img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85, optimize=False, progressive=False)
+            buf.seek(0)
+            return send_file(buf, mimetype="image/jpeg", max_age=86400)
+        except Exception as e:
+            logger.warning("Error serving resized avatar for %s: %s", pid, e)
+            return send_file(avatar_path, mimetype="image/jpeg", max_age=86400)
 
     # Default fallback: generate a colored letter avatar using household monogram & custom color
     display_name = profile.get("display_name", pid.title()) if profile else pid.title()
@@ -248,6 +310,6 @@ def serve_profile_avatar(profile_id: str):
         all_monos = compute_household_monograms()
         custom_mono = all_monos.get(pid)
 
-    buf = generate_initial_avatar(display_name, monogram=custom_mono, custom_color=custom_color, size=160)
+    buf = generate_initial_avatar(display_name, monogram=custom_mono, custom_color=custom_color, size=target_size)
     return send_file(buf, mimetype="image/jpeg", max_age=3600)
 

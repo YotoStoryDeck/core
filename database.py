@@ -557,8 +557,8 @@ def get_shared_rules() -> Dict[str, Any]:
         cur = conn.cursor()
         cur.execute("SELECT key, value FROM shared_rules;")
         rules = {r["key"]: json.loads(r["value"]) for r in cur.fetchall()}
-        # Allowed media items
-        cur.execute("SELECT id FROM media_items WHERE type = 'yoto' AND id NOT IN (SELECT media_id FROM profile_media_permissions WHERE permission = 'excluded');")
+        # Allowed media items (include both 'yoto' and 'yoto_myo'; per-profile exclusions are evaluated per profile in get_catalog_matrix)
+        cur.execute("SELECT id FROM media_items WHERE type IN ('yoto', 'yoto_myo');")
         allowed = [r["id"] for r in cur.fetchall()]
         # Regexes
         cur.execute("SELECT pattern FROM shared_regex_patterns WHERE target_scope = 'shared';")
@@ -740,6 +740,20 @@ def upsert_media_items(items: List[Dict[str, Any]]) -> int:
         return count
     finally:
         conn.close()
+
+def get_media_item_by_id(media_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a single cached media item from SQLite by ID."""
+    if not media_id:
+        return None
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, type, title, author, cover_url, is_highlight, raw_metadata FROM media_items WHERE id = ?;", (media_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 def get_catalog_matrix() -> Dict[str, Any]:
     """Returns complete media catalog with highlight flags and per-profile permissions."""
     conn = get_db_connection()
@@ -868,20 +882,24 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
     results = []
     def _parse_seq(val, title):
         seq = None
-        seq_disp = str(val).strip() if val else None
+        seq_disp = str(val).strip() if (val is not None and str(val).strip() != "") else None
         if seq_disp:
-            try:
-                seq = float(seq_disp.split("-")[0])
-            except (ValueError, TypeError):
-                pass
+            m_lead = re.search(r"(\d+(?:\.\d+)?)", seq_disp)
+            if m_lead:
+                try:
+                    seq = float(m_lead.group(1))
+                except (ValueError, TypeError):
+                    pass
         if seq is None and title:
             m_range = re.search(r"#\s*(\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?)|(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?)", title, re.IGNORECASE)
             if m_range:
                 seq_disp = re.sub(r"\s+", "", m_range.group(1) or m_range.group(2))
-                try:
-                    seq = float(seq_disp.split("-")[0])
-                except (ValueError, TypeError):
-                    pass
+                m_lead = re.search(r"(\d+(?:\.\d+)?)", seq_disp)
+                if m_lead:
+                    try:
+                        seq = float(m_lead.group(1))
+                    except (ValueError, TypeError):
+                        pass
             else:
                 m_num = re.search(r"#\s*(\d+(?:\.\d+)?)|\b(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?)", title, re.IGNORECASE)
                 if m_num:

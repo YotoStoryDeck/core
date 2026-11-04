@@ -62,17 +62,62 @@ def health_check():
         "yoto_bridge_url": creds.get("yoto_bridge_url", "") if mode == "bridge" else "",
         "timestamp": int(time.time())
     })
+# In-memory tracker of last played chapter per (child_id, media_id) or (device_id, media_id) for Yoto cards
+_yoto_resume_state = {}
+
+
+def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
+    """Normalizes profile avatar_url to /api/avatar/<pid>?t=<mtime> when a custom avatar exists."""
+    from core.config import AVATARS_DIR
+    from routes.admin_profiles import _materialize_avatar_bytes_to_disk
+    import base64
+
+    avatar_path = AVATARS_DIR / f"{pid}.jpg"
+    raw_av = str(pdata.get("avatar_url") or "").strip()
+
+    if not avatar_path.exists() and raw_av:
+        if raw_av.startswith("data:image/") and ";base64," in raw_av:
+            try:
+                raw_bytes = base64.b64decode(raw_av.split(";base64,", 1)[1])
+                norm = _materialize_avatar_bytes_to_disk(pid, raw_bytes)
+                if norm:
+                    pdata["avatar_url"] = norm
+                    database.upsert_profile(pid, pdata)
+                    raw_av = norm
+            except Exception:
+                pass
+        elif raw_av.startswith("http://") or raw_av.startswith("https://"):
+            try:
+                res = requests.get(raw_av, timeout=6)
+                if res.status_code == 200 and res.content:
+                    norm = _materialize_avatar_bytes_to_disk(pid, res.content)
+                    if norm:
+                        pdata["avatar_url"] = norm
+                        database.upsert_profile(pid, pdata)
+                        raw_av = norm
+            except Exception:
+                pass
+
+    if avatar_path.exists():
+        mtime = int(avatar_path.stat().st_mtime)
+        return f"/api/avatar/{pid}?t={mtime}", True
+
+    has_custom = bool(raw_av and not raw_av.endswith(f"/api/avatar/{pid}"))
+    return (raw_av or f"/api/avatar/{pid}"), has_custom
+
+
 @esp32_bp.route("/api/profiles", methods=["GET"])
 def get_profiles():
     """Returns available child profiles with assigned primary & additional player devices."""
     config = database.get_all_profiles()
     profiles = []
     for pid, pdata in config.items():
-        avatar = pdata.get("avatar_url") or f"/api/avatar/{pid}"
+        avatar, has_custom = _resolve_profile_avatar_info(pid, pdata)
         profiles.append({
             "id": pid,
             "display_name": pdata.get("display_name", pid.title()),
             "avatar_url": avatar,
+            "has_custom_avatar": has_custom,
             "default_player_id": pdata.get("default_player_id", ""),
             "player_ids": pdata.get("player_ids", [])
         })
@@ -238,32 +283,58 @@ def get_device_config():
         mode = creds.get("yoto_connection_mode", "bridge")
         if mode == "bridge" and creds.get("yoto_bridge_url"):
             b_url = creds["yoto_bridge_url"].rstrip("/")
-            res = requests.get(f"{b_url}/api/status", timeout=2)
+            bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+            res = requests.get(f"{b_url}/api/status", headers=bridge_headers, timeout=4)
             if res.status_code == 200:
                 for d in res.json().get("devices", []):
                     did = d.get("id")
                     if did:
-                        is_playing = (d.get("status") == "playing")
+                        dev_status = (d.get("status") or "idle").lower()
+                        is_playing = (dev_status == "playing")
+                        is_active_media = dev_status in ("playing", "paused") or is_playing
                         chapter_title = d.get("chapter_title") or ""
                         author = d.get("author") or ""
                         cover_url = d.get("cover_url") or ""
-                        item_id = d.get("item_id")
-                        pos = d.get("position") or 0
-                        if is_playing and item_id and clients.abs_client:
-                            try:
-                                abs_item = clients.abs_client.get_item(item_id)
-                                if abs_item:
-                                    meta = abs_item.get("media", {}).get("metadata", {})
-                                    author = meta.get("authorName") or meta.get("author") or author
-                                    if not author and meta.get("authors"):
-                                        author = meta["authors"][0].get("name", "")
-                                    ch_list = abs_item.get("media", {}).get("chapters", [])
-                                    curr = [c for c in ch_list if c.get("start", 0) <= pos < c.get("end", 0)]
-                                    if curr:
-                                        chapter_title = curr[0].get("title", "")
-                            except Exception as ce:
-                                logger.debug("Chapter/Author resolution notice: %s", ce)
-                        has_card = bool(item_id or d.get("now_playing"))
+                        item_id = d.get("item_id") if is_active_media else None
+                        now_playing = d.get("now_playing") if is_active_media else None
+                        pos = (d.get("position") or 0) if is_active_media else 0
+
+                        # Fast local SQLite media_items enrichment for both Yoto cards and ABS books
+                        if item_id:
+                            db_item = database.get_media_item_by_id(item_id)
+                            if db_item:
+                                if not now_playing or now_playing == "Yoto Card":
+                                    now_playing = db_item.get("title") or now_playing
+                                if not author:
+                                    author = db_item.get("author") or ""
+                                if not cover_url:
+                                    c_db = db_item.get("cover_url") or ""
+                                    if c_db:
+                                        if db_item.get("type", "").startswith("yoto") and not c_db.startswith("/api/thumb"):
+                                            import urllib.parse
+                                            cover_url = f"/api/thumb?type=yoto&id={item_id}&url={urllib.parse.quote(c_db)}"
+                                        else:
+                                            cover_url = c_db
+
+                        if is_active_media and item_id and clients.abs_client:
+                            db_item = database.get_media_item_by_id(item_id)
+                            if not db_item or db_item.get("type") == "abs":
+                                try:
+                                    abs_item = clients.abs_client.get_item(item_id)
+                                    if abs_item:
+                                        meta = abs_item.get("media", {}).get("metadata", {})
+                                        author = meta.get("authorName") or meta.get("author") or author
+                                        if not author and meta.get("authors"):
+                                            author = meta["authors"][0].get("name", "")
+                                        if not now_playing:
+                                            now_playing = meta.get("title") or now_playing
+                                        ch_list = abs_item.get("media", {}).get("chapters", [])
+                                        curr = [c for c in ch_list if c.get("start", 0) <= pos < c.get("end", 0)]
+                                        if curr:
+                                            chapter_title = curr[0].get("title", "")
+                                except Exception as ce:
+                                    logger.debug("Chapter/Author resolution notice: %s", ce)
+                        has_card = bool(is_active_media and (item_id or now_playing))
                         is_online = bool(d.get("online"))
                         is_home = verify_player_home_presence(did, is_online)
                         player_map[did] = {
@@ -272,16 +343,16 @@ def get_device_config():
                             "online": is_online,
                             "is_home": is_home,
                             "location": "home" if is_home else "away",
-                            "status": d.get("status") or "idle",
+                            "status": dev_status,
                             "is_playing": is_playing,
                             "has_card": has_card,
-                            "now_playing": d.get("now_playing"),
+                            "now_playing": now_playing,
                             "author": author,
                             "chapter_title": chapter_title,
                             "cover_url": cover_url,
                             "item_id": item_id,
                             "position": pos,
-                            "duration": d.get("duration"),
+                            "duration": d.get("duration") if is_active_media else 0,
                             "volume": d.get("volume"),
                             "volume_max": d.get("volume_max", 100),
                             "day_mode": d.get("day_mode")
@@ -308,7 +379,7 @@ def get_device_config():
     monograms = compute_household_monograms()
     profile_summaries = []
     for pid, pdata in all_profs.items():
-        avatar = pdata.get("avatar_url") or f"/api/avatar/{pid}"
+        avatar, has_custom_av = _resolve_profile_avatar_info(pid, pdata)
         def_id = pdata.get("default_player_id", "")
         # Assemble list of all player objects linked to this profile
         p_ids = list(pdata.get("player_ids", []))
@@ -341,6 +412,7 @@ def get_device_config():
             "id": pid,
             "display_name": pdata.get("display_name", pid.title()),
             "avatar_url": avatar,
+            "has_custom_avatar": has_custom_av,
             "avatar_color": av_color,
             "avatar_initial": av_initial,
             "default_player_id": def_id,
@@ -439,7 +511,8 @@ def play_media():
     media_type = data.get("type", "abs")
     media_id = data.get("id")
     device_id = data.get("device_id")
-    chapter = int(data.get("chapter", 1))
+    raw_ch = data.get("chapter")
+    explicit_chapter = int(raw_ch) if (raw_ch is not None and str(raw_ch).strip() != "" and int(raw_ch) > 0) else None
     if not media_id:
         return jsonify({"ok": False, "error": "Missing media id"}), 400
     config = database.get_all_profiles()
@@ -453,21 +526,24 @@ def play_media():
         device_id = default_player or (allowed_players[0] if allowed_players else "")
     if not device_id:
         return jsonify({"ok": False, "error": f"No target player resolved for child '{child}'"}), 400
-    logger.info("Executing play: child=%s, type=%s, media=%s, device=%s (allowed=%s)", child, media_type, media_id, device_id, allowed_players)
+    logger.info("Executing play: child=%s, type=%s, media=%s, device=%s, explicit_ch=%s", child, media_type, media_id, device_id, explicit_chapter)
     creds = database.get_api_credentials()
     mode = creds.get("yoto_connection_mode", "bridge")
     if media_type == "yoto":
+        # If no explicit chapter was passed, resume from the profile/player's last played chapter for this Yoto card
+        chapter = explicit_chapter or _yoto_resume_state.get((child, media_id)) or _yoto_resume_state.get((device_id, media_id)) or 1
+        _yoto_resume_state[(child, media_id)] = chapter
+        _yoto_resume_state[(device_id, media_id)] = chapter
+        chapter_title = ""
         # 1. Bridge Mode: Route to Bridge /api/play so user needs zero separate Yoto credentials
         if mode == "bridge" and creds.get("yoto_bridge_url"):
             active_bridge_url = creds.get("yoto_bridge_url").rstrip("/")
             bridge_url = f"{active_bridge_url}/api/play"
-            # Check if this card has non-numeric hash/string keys (podcasts, radio stations, daily)
-            # Strip bare numeric chapter_key/track_key (e.g. "1") so Bridge or cdetail resolves true "01" / hash keys
-            raw_ck = str(data.get("chapter_key") or "").strip()
-            raw_tk = str(data.get("track_key") or "").strip()
-            chapter_key = None if raw_ck.isdigit() else (raw_ck or None)
-            track_key = None if raw_tk.isdigit() else (raw_tk or None)
-            if not track_key or not chapter_key:
+            raw_ck = str(data.get("chapter_key") or "").strip() if explicit_chapter else ""
+            raw_tk = str(data.get("track_key") or "").strip() if explicit_chapter else ""
+            chapter_key = None if (raw_ck.isdigit() and len(raw_ck) == 1) else (raw_ck or None)
+            track_key = None if (raw_tk.isdigit() and len(raw_tk) == 1) else (raw_tk or None)
+            if not track_key or not chapter_key or not chapter_title:
                 try:
                     if clients.yoto_client:
                         cdetail = clients.yoto_client.get_card_detail(media_id)
@@ -475,15 +551,16 @@ def play_media():
                             c_obj = cdetail.get("content") or cdetail.get("card", {}).get("content") or {}
                             chaps = c_obj.get("chapters", [])
                             if chaps:
-                                t_idx = max(0, chapter - 1)
-                                if t_idx < len(chaps):
-                                    tgt = chaps[t_idx]
-                                    chapter_key = chapter_key or tgt.get("key")
-                                    trks = tgt.get("tracks", [])
-                                    if trks:
-                                        track_key = track_key or trks[0].get("key")
-                                    else:
-                                        track_key = track_key or tgt.get("key")
+                                t_idx = max(0, min(len(chaps) - 1, chapter - 1))
+                                chapter = t_idx + 1
+                                tgt = chaps[t_idx]
+                                chapter_title = tgt.get("title") or ""
+                                chapter_key = chapter_key or tgt.get("key")
+                                trks = tgt.get("tracks", [])
+                                if trks:
+                                    track_key = track_key or trks[0].get("key")
+                                else:
+                                    track_key = track_key or tgt.get("key")
                 except Exception as ke:
                     logger.debug("Notice extracting keys for %s: %s", media_id, ke)
             payload = {
@@ -503,7 +580,7 @@ def play_media():
                 res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
                 if res.status_code in (200, 204):
                     logger.info("Bridge accepted Yoto card play: HTTP %d (Status: playing)", res.status_code)
-                    return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id})
+                    return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
                 logger.warning("Bridge returned HTTP %d for Yoto card play: %s", res.status_code, res.text)
                 return jsonify({"ok": False, "error": f"Bridge rejected Yoto card playback (HTTP {res.status_code})"}), res.status_code
             except Exception as e:
@@ -514,10 +591,14 @@ def play_media():
             logger.error("Yoto direct client not initialized; cannot fallback for card %s", media_id)
             return jsonify({"ok": False, "error": "Yoto client not initialized"}), 502
         logger.info("Routing Yoto card play to direct Yoto Cloud API: card=%s, player=%s", media_id, device_id)
-        success = clients.yoto_client.start_playback(device_id, media_id, chapter)
+        raw_ck = str(data.get("chapter_key") or "").strip() if explicit_chapter else ""
+        raw_tk = str(data.get("track_key") or "").strip() if explicit_chapter else ""
+        ck_val = None if (raw_ck.isdigit() and len(raw_ck) == 1) else (raw_ck or None)
+        tk_val = None if (raw_tk.isdigit() and len(raw_tk) == 1) else (raw_tk or None)
+        success = clients.yoto_client.start_playback(device_id, media_id, chapter, chapter_key=ck_val, track_key=tk_val)
         if success:
             logger.info("Direct Yoto Cloud accepted playback command for %s", device_id)
-            return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id})
+            return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
         logger.error("Direct Yoto Cloud play command failed for player %s", device_id)
         return jsonify({"ok": False, "error": "Yoto player command failed"}), 502
     elif media_type == "abs":
@@ -526,28 +607,37 @@ def play_media():
         bridge_url = f"{active_bridge_url}/api/play"
         payload = {
             "item_id": media_id,
-            "device_id": device_id,
-            "chapter": chapter
+            "device_id": device_id
         }
+        # Only send explicit chapter when user picked a specific chapter; omit when resuming book progress!
+        if explicit_chapter is not None:
+            payload["chapter"] = explicit_chapter
         bridge_headers = {}
         if creds.get("yoto_bridge_api_key"):
             bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
         try:
-            logger.info("Routing Audiobookshelf playback to Bridge (%s): item=%s, player=%s, ch=%d", bridge_url, media_id, device_id, chapter)
+            logger.info("Routing Audiobookshelf playback to Bridge (%s): item=%s, player=%s, explicit_ch=%s", bridge_url, media_id, device_id, explicit_chapter)
             res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
             if res.status_code in (200, 204):
-                logger.info("Bridge accepted ABS stream dispatch: HTTP %d (Status: playing)", res.status_code)
-                return jsonify({"ok": True, "status": "playing", "type": "abs", "device_id": device_id})
+                b_data = res.json() if res.content else {}
+                resumed_ch = b_data.get("chapter") or explicit_chapter or 1
+                resumed_title = b_data.get("chapter_title") or ""
+                resumed_pos = b_data.get("position") or 0
+                logger.info("Bridge accepted ABS stream dispatch: HTTP %d (ch=%s, pos=%s)", res.status_code, resumed_ch, resumed_pos)
+                return jsonify({
+                    "ok": True,
+                    "status": "playing",
+                    "type": "abs",
+                    "device_id": device_id,
+                    "chapter": resumed_ch,
+                    "chapter_title": resumed_title,
+                    "position": resumed_pos
+                })
             logger.warning("Bridge returned HTTP %d for ABS stream: %s", res.status_code, res.text)
+            return jsonify({"ok": False, "error": f"Bridge rejected ABS playback (HTTP {res.status_code})"}), res.status_code
         except Exception as e:
             logger.error("Failed to route ABS stream to Yoto Bridge: %s", e)
-        return jsonify({
-            "ok": True,
-            "status": "dispatched",
-            "type": "abs",
-            "message": "ABS playback request dispatched to bridge",
-            "device_id": device_id
-        })
+            return jsonify({"ok": False, "error": f"Bridge communication error: {str(e)}"}), 502
     return jsonify({"ok": False, "error": f"Unsupported media type '{media_type}'"}), 400
 @esp32_bp.route("/api/player/control", methods=["POST"])
 @require_device_jwt

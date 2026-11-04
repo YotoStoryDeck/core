@@ -540,23 +540,27 @@ class YotoClient:
                                 card_series = candidate
                                 break
 
-                # Deduce sequence from title if missing (e.g. Book 3, Vol 2, or #5, or ranges #1-3)
-                card_seq_disp = card.get("series_order") or None
-                if card_seq_disp:
+                # Deduce sequence from title if missing (e.g. Book 3, Vol 2, or #5, or ranges #0-3)
+                card_seq_disp = card.get("series_order") if card.get("series_order") is not None else None
+                if card_seq_disp is not None and str(card_seq_disp).strip() != "":
                     card_seq_disp = str(card_seq_disp).strip()
-                    try:
-                        card_seq = float(card_seq_disp.split("-")[0])
-                    except (ValueError, TypeError):
-                        pass
+                    m_lead = re.search(r"(\d+(?:\.\d+)?)", card_seq_disp)
+                    if m_lead:
+                        try:
+                            card_seq = float(m_lead.group(1))
+                        except (ValueError, TypeError):
+                            pass
 
                 if card_seq is None and title:
                     m_range = re.search(r"#\s*(\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?)|(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?)", title, re.IGNORECASE)
                     if m_range:
                         card_seq_disp = re.sub(r"\s+", "", m_range.group(1) or m_range.group(2))
-                        try:
-                            card_seq = float(card_seq_disp.split("-")[0])
-                        except (ValueError, TypeError):
-                            pass
+                        m_lead = re.search(r"(\d+(?:\.\d+)?)", card_seq_disp)
+                        if m_lead:
+                            try:
+                                card_seq = float(m_lead.group(1))
+                            except (ValueError, TypeError):
+                                pass
                     else:
                         m_num = re.search(r"#\s*(\d+(?:\.\d+)?)|\b(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?)", title, re.IGNORECASE)
                         if m_num:
@@ -656,7 +660,7 @@ class YotoClient:
             logger.error("Yoto transport command error on %s: %s", device_id, e)
         return False
 
-    def start_playback(self, device_id: str, card_id: str, chapter: int = 1) -> bool:
+    def start_playback(self, device_id: str, card_id: str, chapter: int = 1, chapter_key: Optional[str] = None, track_key: Optional[str] = None) -> bool:
         """Triggers playback of a card on a target Yoto player."""
         token = self.get_token()
         if not token:
@@ -664,11 +668,13 @@ class YotoClient:
 
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         url = f"{self.API_URL}/device-v2/{device_id}/command/card/start"
-        key = f"{max(1, int(chapter)):02d}"
+        default_key = f"{max(1, int(chapter)):02d}"
+        ck = chapter_key or default_key
+        tk = track_key or ck
         payload = {
             "uri": f"https://yoto.io/{card_id}",
-            "chapterKey": key,
-            "trackKey": key
+            "chapterKey": ck,
+            "trackKey": tk
         }
         try:
             res = requests.post(url, json=payload, headers=headers, timeout=10)

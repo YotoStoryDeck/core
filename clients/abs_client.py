@@ -135,10 +135,12 @@ class ABSClient:
                         m_range = re.search(r"\b(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?)", title, re.IGNORECASE)
                         if m_range:
                             fallback_seq_disp = re.sub(r"\s+", "", m_range.group(1))
-                            try:
-                                fallback_seq = float(fallback_seq_disp.split("-")[0])
-                            except (ValueError, TypeError):
-                                pass
+                            m_lead = re.search(r"(\d+(?:\.\d+)?)", fallback_seq_disp)
+                            if m_lead:
+                                try:
+                                    fallback_seq = float(m_lead.group(1))
+                                except (ValueError, TypeError):
+                                    pass
                         else:
                             m_book = re.search(r"\b(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?)", title, re.IGNORECASE)
                             if m_book:
