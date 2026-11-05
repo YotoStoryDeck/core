@@ -9,6 +9,16 @@ import database
 import clients
 from core.config import YOTO_BRIDGE_URL, logger
 from core.auth import require_device_jwt, create_device_jwt, decode_and_verify_device_jwt
+
+# Persistent HTTP session with keep-alive pool for low-latency Bridge/Yoto relay
+_http_session = requests.Session()
+_adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1)
+_http_session.mount("http://", _adapter)
+_http_session.mount("https://", _adapter)
+
+# Cached player volume ceilings (device_id -> {"max": int, "cached_at": float})
+_player_vol_cache = {}
+
 # In-memory presence cache for local home network verification
 _player_home_presence = {}  # device_id -> {"is_home": bool, "last_checked": float}
 def verify_player_home_presence(device_id: str, online: bool) -> bool:
@@ -483,6 +493,8 @@ def update_device_settings():
         updates["lock_player"] = 1 if bool(data["lock_player"]) else 0
     if "locked_player_id" in data:
         updates["locked_player_id"] = str(data["locked_player_id"] or "").strip()
+    if "assigned_profile" in data or "assigned_profile_id" in data:
+        updates["assigned_profile_id"] = str(data.get("assigned_profile") or data.get("assigned_profile_id") or "").strip()
     if "friendly_name" in data and data["friendly_name"]:
         updates["friendly_name"] = str(data["friendly_name"]).strip()
 
@@ -507,7 +519,7 @@ def play_media():
     Unified playback execution route for the ESP32.
     Payload:
       {
-        "child": "jackson" | "wesley",
+        "child": "<profile_id>",
         "type": "abs" | "yoto",
         "id": "<media_id>",
         "device_id": "<optional_specific_device_id>",
@@ -515,7 +527,7 @@ def play_media():
       }
     """
     data = request.get_json(force=True, silent=True) or {}
-    child = data.get("child", "jackson").lower()
+    child = str(data.get("child") or data.get("profile_id") or "default").lower()
     media_type = data.get("type", "abs")
     media_id = data.get("id")
     device_id = data.get("device_id")
@@ -677,28 +689,33 @@ def control_player():
             if volume is None:
                 return jsonify({"ok": False, "error": "volume (0-100) is required for volume action"}), 400
             vol_val = max(0, min(100, int(volume)))
-            # Parent volume ceiling check & clamp
-            # Query bridge or cached status to ensure child cannot exceed parent-configured max limit
-            max_limit = 100
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    s_res = requests.get(f"{active_bridge_url}/api/status", headers=bridge_headers, timeout=2)
-                    if s_res.status_code == 200:
-                        for d in s_res.json().get("devices", []):
-                            if d.get("id") == device_id:
-                                max_limit = d.get("volume_max", 100)
-                                break
-                except Exception as ve:
-                    logger.debug("Could not verify live volume_max from bridge: %s", ve)
+            # Parent volume ceiling check & clamp using cached volume_max (avoids 300-800ms GET round-trip)
+            now_ts = time.time()
+            cached_vc = _player_vol_cache.get(device_id)
+            if cached_vc and (now_ts - cached_vc.get("cached_at", 0) < 300):
+                max_limit = cached_vc.get("max", 100)
+            else:
+                max_limit = 100
+                if mode == "bridge" and active_bridge_url:
+                    try:
+                        s_res = _http_session.get(f"{active_bridge_url}/api/status", headers=bridge_headers, timeout=1.5)
+                        if s_res.status_code == 200:
+                            for d in s_res.json().get("devices", []):
+                                if d.get("id") == device_id:
+                                    max_limit = d.get("volume_max", 100)
+                                    _player_vol_cache[device_id] = {"max": max_limit, "cached_at": now_ts}
+                                    break
+                    except Exception as ve:
+                        logger.debug("Could not verify live volume_max from bridge: %s", ve)
             if vol_val > max_limit:
                 logger.info("Volume request %d%% for player %s clamped to parent limit %d%%", vol_val, device_id, max_limit)
                 vol_val = max_limit
             if mode == "bridge" and active_bridge_url:
-                # Try /api/device/volume first, fall back to /api/yoto/volume
+                # Try /api/device/volume first, fall back to /api/yoto/volume using keep-alive session
                 try:
-                    r = requests.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                    r = _http_session.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=3)
                     if r.status_code == 404:
-                        r = requests.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=5)
+                        r = _http_session.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=3)
                     if r.status_code == 200:
                         logger.info("Player %s volume updated to %d%% via Bridge", device_id, vol_val)
                         return jsonify({"ok": True, "device_id": device_id, "volume": vol_val})
@@ -716,7 +733,7 @@ def control_player():
         elif action in ("pause", "resume", "stop"):
             if mode == "bridge" and active_bridge_url:
                 try:
-                    r = requests.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
+                    r = _http_session.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=3)
                     if r.status_code == 200:
                         logger.info("Player %s transport action '%s' accepted by Bridge", device_id, action)
                         return jsonify({"ok": True, "device_id": device_id, "action": action})
@@ -733,7 +750,7 @@ def control_player():
         # 3. Chapter Track Skip: Prev / Next
         elif action in ("prev", "next"):
             if mode == "bridge" and active_bridge_url:
-                r = requests.post(f"{active_bridge_url}/api/seek", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=5)
+                r = _http_session.post(f"{active_bridge_url}/api/seek", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=3)
                 if r.status_code == 200:
                     logger.info("Player %s seek '%s' accepted by Bridge: %s", device_id, action, r.text)
                     return jsonify({"ok": True, "device_id": device_id, "action": action, "data": r.json()})

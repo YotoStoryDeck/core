@@ -1,0 +1,51 @@
+<!-- Modal: Configure ESP32 Controller Profile & Player Assignment -->
+<div class="modal" id="editDeviceModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1050; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+  <div class="modal-content" style="max-width: 480px; width: 90%; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 24px;">📟</span>
+        <h3 style="margin: 0; font-size: 18px; color: var(--text-primary);">Configure Touch Controller</h3>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeEditDeviceModal()" style="padding: 2px 8px;">✕</button>
+    </div>
+    
+    <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+      Lock <strong id="editDeviceFriendlyName" style="color:var(--text-primary);">ESP32 Controller</strong> (<code id="editDeviceMac"></code>) to a single child profile and target Yoto player.
+    </p>
+
+    <!-- Friendly Name -->
+    <div style="margin-bottom: 14px;">
+      <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+        Device Friendly Name:
+      </label>
+      <input type="text" id="editDeviceNameInput" class="form-control" placeholder="e.g. Jackson's Bedside Touch">
+    </div>
+
+    <!-- Assigned Profile -->
+    <div style="margin-bottom: 14px;">
+      <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+        Assigned Child Profile (Required for Single-User Touch):
+      </label>
+      <select id="editDeviceProfileSelect" class="form-control" onchange="onEditDeviceProfileChange()">
+        <!-- Populated via JS -->
+      </select>
+      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">The controller will boot directly into this profile's library.</small>
+    </div>
+
+    <!-- Target Yoto Player -->
+    <div style="margin-bottom: 16px;">
+      <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+        Target Yoto Player (Required for Audio):
+      </label>
+      <select id="editDevicePlayerSelect" class="form-control">
+        <!-- Populated via JS -->
+      </select>
+      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">Only players available to the selected profile are shown.</small>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+      <button type="button" class="btn btn-secondary" onclick="closeEditDeviceModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitEditDevice()">💾 Save Changes</button>
+    </div>
+  </div>
+</div>

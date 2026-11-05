@@ -138,7 +138,8 @@ def admin_discovery_players():
     if mode == "bridge" and creds.get("yoto_bridge_url"):
         try:
             b_url = creds["yoto_bridge_url"].rstrip("/")
-            res = requests.get(f"{b_url}/api/status", timeout=5)
+            bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+            res = requests.get(f"{b_url}/api/status", headers=bridge_headers, timeout=5)
             if res.status_code == 200:
                 data = res.json()
                 players = []
@@ -208,7 +209,8 @@ def admin_discovery_household_match():
     if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
         try:
             b_url = creds["yoto_bridge_url"].rstrip("/")
-            res = requests.get(f"{b_url}/api/status", timeout=5)
+            bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+            res = requests.get(f"{b_url}/api/status", headers=bridge_headers, timeout=5)
             if res.status_code == 200:
                 players = res.json().get("devices", [])
         except Exception:

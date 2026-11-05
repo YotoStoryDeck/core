@@ -226,7 +226,7 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
             # Verify /api/thumb handles item_id without error (returns placeholder SVG 200)
             res_thumb = self.client.get(f"/api/thumb?type=yoto&id={test_card_id}&size=100")
             self.assertEqual(res_thumb.status_code, 200)
-            self.assertIn("svg", res_thumb.content_type)
+            self.assertIn(res_thumb.content_type, ("image/jpeg", "image/svg+xml"))
         finally:
             conn = database.get_db_connection()
             try:

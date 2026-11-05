@@ -305,6 +305,7 @@ def admin_update_abs_item_tags():
 
 
 @admin_curation_bp.route("/api/admin/yoto/cards", methods=["GET", "PUT"])
+@require_admin
 def admin_yoto_cards():
     """Legacy backward-compatible endpoint for curation."""
     full_cfg = load_full_config()

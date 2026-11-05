@@ -121,6 +121,9 @@ def init_db():
                 token_version INTEGER DEFAULT 1,
                 last_token_issued DATETIME,
                 parent_pin TEXT DEFAULT '',
+                lock_player BOOLEAN DEFAULT 0,
+                locked_player_id TEXT DEFAULT '',
+                settings_json TEXT DEFAULT '{}',
                 last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (assigned_profile_id) REFERENCES profiles(id) ON DELETE SET NULL
@@ -653,7 +656,8 @@ def update_esp32_device(mac_address: str, updates: Dict[str, Any]) -> bool:
             for k in [
                 "friendly_name", "assigned_profile_id", "is_approved",
                 "target_firmware_version", "ota_status", "ota_progress", "ota_last_error",
-                "jwt_secret", "token_version", "last_token_issued", "parent_pin"
+                "jwt_secret", "token_version", "last_token_issued", "parent_pin",
+                "lock_player", "locked_player_id", "settings_json"
             ]:
                 if k in updates:
                     fields.append(f"{k} = ?")
