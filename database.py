@@ -194,7 +194,7 @@ def init_db():
 # ============================================================================
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 8
 def run_schema_migrations(conn: sqlite3.Connection):
     """
     Applies incremental database schema migrations sequentially using SQLite's
@@ -296,6 +296,21 @@ def run_schema_migrations(conn: sqlite3.Connection):
                 conn.execute("ALTER TABLE profiles ADD COLUMN catalog_rotation_hour INTEGER DEFAULT 3;")
             conn.execute("PRAGMA user_version = 7;")
         logger.info("Migrated SQLite schema to version 7 (added has_physical to media_items, rotation columns to profiles).")
+
+    # Version 7 -> 8: Add media_playback_history table and index
+    if version < 8:
+        with conn:
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS media_playback_history (
+                media_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                last_played_at DATETIME NOT NULL,
+                PRIMARY KEY (media_id, profile_id)
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_playback_hist_prof ON media_playback_history(profile_id);")
+            conn.execute("PRAGMA user_version = 8;")
+        logger.info("Migrated SQLite schema to version 8 (added media_playback_history table).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================
