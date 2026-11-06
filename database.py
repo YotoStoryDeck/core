@@ -1331,6 +1331,23 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
         for b in c_books:
             _pull_item_and_whole_series(b)
 
+    # Predetermine series representative cover and ID on every card
+    for r in final_results:
+        s_name = (r.get("series") or "").strip()
+        if s_name and s_name.lower() in series_all_books:
+            lead = series_all_books[s_name.lower()][0]
+            r["series_cover"] = lead.get("cover") or lead.get("thumb") or ""
+            r["series_cover_id"] = lead.get("id") or ""
+        else:
+            r["series_cover"] = ""
+            r["series_cover_id"] = ""
+        for extra in (r.get("series_list") or []):
+            ex_name = (extra.get("name") or "").strip()
+            if ex_name and ex_name.lower() in series_all_books:
+                ex_lead = series_all_books[ex_name.lower()][0]
+                extra["cover"] = ex_lead.get("cover") or ex_lead.get("thumb") or ""
+                extra["cover_id"] = ex_lead.get("id") or ""
+
     # Clean up internal metadata keys
     for r in final_results:
         r.pop("_last_played_at", None)
