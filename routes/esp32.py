@@ -200,6 +200,7 @@ def get_device_media_tracks(media_id: str):
         logger.exception("Error getting device tracks for %s: %s", media_id, e)
         return jsonify({"ok": False, "error": str(e)}), 500
 @esp32_bp.route("/api/devices/register", methods=["POST"])
+@esp32_bp.route("/api/device/register", methods=["POST"])
 def register_device():
     """
     Self-announcement handshake called by ESP32 devices upon completing Wi-Fi.
@@ -207,7 +208,7 @@ def register_device():
     If pending approval, returns status: pending_approval (HTTP 202).
     """
     data = request.get_json(silent=True) or {}
-    mac = data.get("mac_address") or data.get("mac")
+    mac = data.get("mac_address") or data.get("mac") or data.get("device_id")
     friendly_name = data.get("friendly_name", "ESP32 Controller")
     # Prioritize explicit client IP from device payload, followed by reverse-proxy headers
     ip_addr = data.get("ip_address") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or request.remote_addr or ""
@@ -373,8 +374,8 @@ def get_device_config():
                             "item_id": item_id,
                             "position": pos,
                             "duration": d.get("duration") if is_active_media else 0,
-                            "volume": d.get("volume"),
-                            "volume_max": d.get("volume_max", 100),
+                            "volume": d.get("volume") if d.get("volume") is not None else 50,
+                            "volume_max": d.get("volume_max", 100) or 100,
                             "day_mode": d.get("day_mode")
                         }
         elif clients.yoto_client:
@@ -391,7 +392,9 @@ def get_device_config():
                         "chapter_title": "",
                         "item_id": None,
                         "position": None,
-                        "duration": None
+                        "duration": None,
+                        "volume": d.get("volume", 50) if d.get("volume") is not None else 50,
+                        "volume_max": d.get("volume_max", 100) or 100
                     }
     except Exception as e:
         logger.debug("Player status resolution notice: %s", e)
@@ -412,7 +415,9 @@ def get_device_config():
                 "name": "Yoto Player",
                 "online": False,
                 "status": "unknown",
-                "is_playing": False
+                "is_playing": False,
+                "volume": 50,
+                "volume_max": 100
             })
             profile_players.append(info)
         def_info = player_map.get(def_id)
