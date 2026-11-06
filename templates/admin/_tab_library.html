@@ -48,6 +48,13 @@
             <!-- Dynamic series options populated via JS -->
           </select>
 
+          <!-- Physical Card Ownership Filter -->
+          <select id="curationPhysicalFilter" class="form-control" style="width: auto; min-width: 135px;" onchange="filterMatrix()">
+            <option value="all">All Ownership</option>
+            <option value="physical">🎴 Physical Owned</option>
+            <option value="digital">📱 Digital Only</option>
+          </select>
+
           <input type="text" id="matrixSearch" class="form-control search-input" placeholder="Search title, author, or series..." oninput="filterMatrix()">
           <button class="btn btn-secondary" onclick="syncUpstreamCatalogs()">🔄 Refresh Catalogs</button>
         </div>
@@ -108,6 +115,7 @@
                 <th>Title / Author</th>
                 <th style="width: 90px;">Type</th>
                 <th style="width: 80px; text-align: center;">Highlight</th>
+                <th style="width: 80px; text-align: center;">Physical</th>
                 <th style="min-width: 220px;">Profile Access & Permissions</th>
               </tr>
             </thead>
@@ -134,6 +142,12 @@
           </button>
           <button class="btn btn-sm btn-secondary" onclick="quickBatchHighlight(false)" title="Remove highlight from selected cards">
             ☆ Remove Highlight
+          </button>
+          <button class="btn btn-sm btn-secondary" onclick="quickBatchPhysical(true)" title="Mark selected cards as physically owned">
+            🎴 Mark Physical
+          </button>
+          <button class="btn btn-sm btn-secondary" onclick="quickBatchPhysical(false)" title="Mark selected cards as digital only">
+            📱 Mark Digital
           </button>
           <button class="btn btn-sm btn-secondary" onclick="clearMatrixSelection()" title="Deselect all">
             ✕ Clear

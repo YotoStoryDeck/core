@@ -205,6 +205,7 @@ function renderMatrixTable() {
     tr.dataset.itemId = item.id;
     tr.dataset.title = (item.title + " " + (item.author || "") + seriesText).toLowerCase();
     tr.dataset.type = item.type || "abs";
+    tr.dataset.physical = item.has_physical ? "true" : "false";
     tr.dataset.series = JSON.stringify(allSeriesNames);
     tr.dataset.profiles = JSON.stringify(item.profiles || {});
 
@@ -278,6 +279,17 @@ function renderMatrixTable() {
       </label>
     `;
     tr.appendChild(hiTd);
+
+    // Physical Ownership Toggle
+    const physTd = document.createElement("td");
+    physTd.style.textAlign = "center";
+    physTd.innerHTML = `
+      <label class="toggle-control" style="margin: 0 auto;">
+        <input type="checkbox" ${item.has_physical ? "checked" : ""} onchange="toggleItemPhysical('${escapeHtml(item.id)}', this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    `;
+    tr.appendChild(physTd);
 
     // Profile Access & Permissions Column
     const accessTd = document.createElement("td");
@@ -424,6 +436,9 @@ function filterMatrix() {
   const typeFilterEl = document.getElementById("curationTypeFilter");
   const selectedType = typeFilterEl ? typeFilterEl.value : "all";
 
+  const physFilterEl = document.getElementById("curationPhysicalFilter");
+  const selectedPhys = physFilterEl ? physFilterEl.value : "all";
+
   const seriesFilterEl = document.getElementById("curationSeriesFilter");
   const selectedSeries = seriesFilterEl ? seriesFilterEl.value : "all";
 
@@ -470,7 +485,12 @@ function filterMatrix() {
       }
     }
 
-    if (matchesSearch && matchesType && matchesSeries && matchesProfile) {
+    const rowPhys = (r.dataset.physical === "true");
+    let matchesPhys = true;
+    if (selectedPhys === "physical") matchesPhys = rowPhys;
+    else if (selectedPhys === "digital") matchesPhys = !rowPhys;
+
+    if (matchesSearch && matchesType && matchesSeries && matchesProfile && matchesPhys) {
       r.style.display = "";
     } else {
       r.style.display = "none";
@@ -479,3 +499,26 @@ function filterMatrix() {
 
   syncSelectAllCheckboxState();
 }
+
+async function toggleItemPhysical(mediaId, hasPhysical) {
+  try {
+    const res = await fetch(`/api/admin/catalog/physical/${encodeURIComponent(mediaId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ has_physical: hasPhysical })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const it = currentMatrix.items.find(i => i.id === mediaId);
+      if (it) it.has_physical = hasPhysical;
+      const row = document.querySelector(`tr[data-item-id="${mediaId}"]`);
+      if (row) row.dataset.physical = hasPhysical ? "true" : "false";
+      showToast(`${hasPhysical ? "🎴 Marked as physical card" : "📱 Marked as digital-only"}`);
+    } else {
+      showToast("Failed to update physical ownership: " + (data.error || "Unknown error"), "error");
+    }
+  } catch (err) {
+    showToast("Network error updating physical ownership: " + err.message, "error");
+  }
+}
+

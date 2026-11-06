@@ -343,6 +343,14 @@ async function openProfileModal(existingId = null) {
 
   titleEl.innerText = existingId ? "✏️ Edit Child Profile" : "👶 Add Child Profile";
   editIdInput.value = existingId || "";
+
+  // Curation Rotation & Physical settings
+  const rotLimitInput = document.getElementById("profileRotationLimit");
+  const rotHourInput = document.getElementById("profileRotationHour");
+  const hidePhysCheck = document.getElementById("profileHidePhysical");
+  if (rotLimitInput) rotLimitInput.value = (prof && prof.catalog_rotation_limit) ? prof.catalog_rotation_limit : 80;
+  if (rotHourInput) rotHourInput.value = (prof && prof.catalog_rotation_hour !== undefined) ? prof.catalog_rotation_hour : 3;
+  if (hidePhysCheck) hidePhysCheck.checked = !!(prof && prof.hide_physical);
   nameInput.value = prof ? prof.display_name : "";
   idInput.value = existingId || "";
   idInput.readOnly = !!existingId;
@@ -507,6 +515,10 @@ async function saveProfileForm(e) {
   const avatarColorHidden = document.getElementById("profileAvatarColorHidden").value.trim();
   const avatarInitialInput = document.getElementById("profileAvatarInitialInput").value.trim().toUpperCase();
 
+  const rotLimit = parseInt(document.getElementById("profileRotationLimit").value, 10) || 80;
+  const rotHour = parseInt(document.getElementById("profileRotationHour").value, 10) || 3;
+  const hidePhys = document.getElementById("profileHidePhysical").checked;
+
   const prof = currentProfiles[id];
   const payload = {
     display_name: name,
@@ -518,6 +530,9 @@ async function saveProfileForm(e) {
     avatar_url: avatarUrlHidden,
     avatar_color: avatarColorHidden,
     avatar_initial: avatarInitialInput,
+    hide_physical: hidePhys,
+    catalog_rotation_limit: rotLimit,
+    catalog_rotation_hour: rotHour,
     yoto: prof ? prof.yoto : { inherit_shared: true, allowed_card_ids: [], excluded_card_ids: [], match_titles: [] }
   };
 
@@ -686,3 +701,20 @@ async function confirmImportDiscovery() {
     showToast("Network error importing profiles.", "danger");
   }
 }
+
+async function forceProfileRotationRefresh() {
+  const editId = document.getElementById("profileEditId").value.trim();
+  try {
+    const url = editId ? `/api/admin/catalog/refresh/${encodeURIComponent(editId)}` : "/api/admin/catalog/refresh";
+    const res = await fetch(url, { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`Refreshed catalog rotation! (${data.count} items processed)`, "success");
+    } else {
+      showToast("Refresh failed: " + (data.error || "Unknown"), "error");
+    }
+  } catch (err) {
+    showToast("Error triggering refresh: " + err.message, "error");
+  }
+}
+

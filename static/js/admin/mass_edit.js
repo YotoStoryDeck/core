@@ -288,3 +288,30 @@ async function submitMassEditModal() {
     showToast("Network error during batch update: " + err.message, "error");
   }
 }
+
+async function quickBatchPhysical(hasPhysical) {
+  if (selectedMatrixItemIds.size === 0) return;
+  const ids = Array.from(selectedMatrixItemIds);
+  try {
+    const res = await fetch("/api/admin/curation/batch-physical", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_ids: ids, has_physical: hasPhysical })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(`${hasPhysical ? "🎴 Marked" : "📱 Cleared physical tag for"} ${ids.length} card(s)`);
+      currentMatrix.items.forEach(it => {
+        if (selectedMatrixItemIds.has(it.id)) {
+          it.has_physical = hasPhysical;
+        }
+      });
+      renderMatrixTable();
+    } else {
+      showToast("Failed to update physical tags: " + (data.error || "Unknown error"), "error");
+    }
+  } catch (err) {
+    showToast("Network error updating physical tags: " + err.message, "error");
+  }
+}
+

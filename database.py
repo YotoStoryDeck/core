@@ -74,6 +74,9 @@ def init_db():
                 avatar_color TEXT DEFAULT '',
                 avatar_initial TEXT DEFAULT '',
                 inherit_shared BOOLEAN DEFAULT 1,
+                hide_physical BOOLEAN DEFAULT 0,
+                catalog_rotation_limit INTEGER DEFAULT 80,
+                catalog_rotation_hour INTEGER DEFAULT 3,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -87,6 +90,7 @@ def init_db():
                 author TEXT DEFAULT '',
                 cover_url TEXT DEFAULT '',
                 is_highlight BOOLEAN DEFAULT 0,
+                has_physical BOOLEAN DEFAULT 0,
                 raw_metadata TEXT DEFAULT '{}',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -265,6 +269,24 @@ def run_schema_migrations(conn: sqlite3.Connection):
                 conn.execute("ALTER TABLE esp32_devices ADD COLUMN settings_json TEXT DEFAULT '{}';")
             conn.execute("PRAGMA user_version = 6;")
         logger.info("Migrated SQLite schema to version 6 (added lock_player, locked_player_id, settings_json to esp32_devices).")
+
+    # Version 6 -> 7: Add has_physical column to media_items and curation rotation columns to profiles
+    if version < 7:
+        with conn:
+            cur.execute("PRAGMA table_info(media_items);")
+            m_columns = [col[1] for col in cur.fetchall()]
+            if "has_physical" not in m_columns:
+                conn.execute("ALTER TABLE media_items ADD COLUMN has_physical BOOLEAN DEFAULT 0;")
+            cur.execute("PRAGMA table_info(profiles);")
+            p_columns = [col[1] for col in cur.fetchall()]
+            if "hide_physical" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN hide_physical BOOLEAN DEFAULT 0;")
+            if "catalog_rotation_limit" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN catalog_rotation_limit INTEGER DEFAULT 80;")
+            if "catalog_rotation_hour" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN catalog_rotation_hour INTEGER DEFAULT 3;")
+            conn.execute("PRAGMA user_version = 7;")
+        logger.info("Migrated SQLite schema to version 7 (added has_physical to media_items, rotation columns to profiles).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================
@@ -477,6 +499,9 @@ def get_all_profiles() -> Dict[str, Any]:
                 "avatar_url": r["avatar_url"],
                 "avatar_color": r["avatar_color"] if "avatar_color" in r.keys() else "",
                 "avatar_initial": r["avatar_initial"] if "avatar_initial" in r.keys() else "",
+                "hide_physical": bool(r["hide_physical"]) if "hide_physical" in r.keys() else False,
+                "catalog_rotation_limit": int(r["catalog_rotation_limit"]) if "catalog_rotation_limit" in r.keys() and r["catalog_rotation_limit"] is not None else 80,
+                "catalog_rotation_hour": int(r["catalog_rotation_hour"]) if "catalog_rotation_hour" in r.keys() and r["catalog_rotation_hour"] is not None else 3,
                 "yoto": {
                     "inherit_shared": bool(r["inherit_shared"]),
                     "allowed_card_ids": allowed,
@@ -506,11 +531,14 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
             avatar_url = data.get("avatar_url", "")
             avatar_color = data.get("avatar_color", "")
             avatar_initial = data.get("avatar_initial", "")
+            hide_phys = 1 if data.get("hide_physical", False) else 0
+            rot_lim = int(data.get("catalog_rotation_limit", 80) or 80)
+            rot_hr = int(data.get("catalog_rotation_hour", 3) if data.get("catalog_rotation_hour") is not None else 3)
             yoto = data.get("yoto", {})
             inherit = 1 if yoto.get("inherit_shared", True) else 0
             conn.execute("""
-            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, hide_physical, catalog_rotation_limit, catalog_rotation_hour, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 display_name = excluded.display_name,
                 abs_username = excluded.abs_username,
@@ -523,8 +551,11 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
                 avatar_color = excluded.avatar_color,
                 avatar_initial = excluded.avatar_initial,
                 inherit_shared = excluded.inherit_shared,
+                hide_physical = excluded.hide_physical,
+                catalog_rotation_limit = excluded.catalog_rotation_limit,
+                catalog_rotation_hour = excluded.catalog_rotation_hour,
                 updated_at = CURRENT_TIMESTAMP;
-            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit))
+            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit, hide_phys, rot_lim, rot_hr))
             # Reset & rebuild permissions
             conn.execute("DELETE FROM profile_media_permissions WHERE profile_id = ?;", (prof_id,))
             for card_id in yoto.get("allowed_card_ids", []):
@@ -854,6 +885,7 @@ def get_catalog_matrix() -> Dict[str, Any]:
                     allowed = False
                     reason = "default_not_shared"
                 profile_states[pid] = {"allowed": allowed, "reason": reason}
+            last_played_at = raw_data.get("lastPlayedAt") or raw_data.get("last_played") or ""
             items.append({
                 "id": m_id,
                 "type": m_type,
@@ -861,6 +893,8 @@ def get_catalog_matrix() -> Dict[str, Any]:
                 "author": mr["author"],
                 "cover_url": mr["cover_url"],
                 "is_highlight": is_hi,
+                "has_physical": bool(mr["has_physical"]) if "has_physical" in mr.keys() else False,
+                "last_played_at": last_played_at,
                 "tags": tags,
                 "library_id": library_id,
                 "series": series,
@@ -933,11 +967,25 @@ def prune_stale_media_items(valid_ids: List[str], media_types: List[str] = None)
 def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> List[Dict[str, Any]]:
     """
     Retrieves filtered media catalog items for a child profile directly from SQLite cache.
-    Returns microcontroller-optimized array matching the legacy client response schema.
+    Implements multi-tiered rotation curation:
+    1. 'Last Played' Tier: Sorted directly to the top for instant one-touch resumption.
+    2. 'Sticky Favorites' Tier: Parent-pinned highlights (is_highlight = 1).
+    3. 'Discovery Rotation Pool': Deterministically rotated daily mix with Book #1 series prioritization
+       and physical card down-weighting, capped at the configurable profile rotation limit (default 80).
+    Returns microcontroller-optimized array matching the client response schema.
     """
+    from datetime import datetime, timezone
+    import hashlib
+
     matrix = get_catalog_matrix()
     items = matrix.get("items", [])
-    results = []
+    profiles = get_all_profiles()
+    pcfg = profiles.get(profile_key.lower(), {})
+    hide_physical = bool(pcfg.get("hide_physical", False))
+    rotation_limit = int(pcfg.get("catalog_rotation_limit", 80) or 80)
+    if rotation_limit <= 0:
+        rotation_limit = 80
+
     def _parse_seq(val, title):
         seq = None
         seq_disp = str(val).strip() if (val is not None and str(val).strip() != "") else None
@@ -959,7 +1007,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
                     except (ValueError, TypeError):
                         pass
             else:
-                m_num = re.search(r"#\s*(\d+(?:\.\d+)?)|\b(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?)", title, re.IGNORECASE)
+                m_num = re.search(r"#\s*(\d+(?:\.\d+)?)|(?:book|volume|vol\.?)\s*(\d+(?:\.\d+)?)", title, re.IGNORECASE)
                 if m_num:
                     v = m_num.group(1) or m_num.group(2)
                     seq_disp = str(v).strip()
@@ -968,6 +1016,8 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
                     except (ValueError, TypeError):
                         pass
         return seq, seq_disp
+
+    allowed_entries = []
     for it in items:
         m_type = it.get("type")
         if media_type == "abs" and m_type != "abs":
@@ -976,6 +1026,11 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
             continue
         if not it.get("profiles", {}).get(profile_key, {}).get("allowed"):
             continue
+
+        has_phys = bool(it.get("has_physical", False))
+        if hide_physical and has_phys:
+            continue
+
         title = it.get("title") or ""
         primary_series = it.get("series") or ""
         raw_order = it.get("series_order") or ""
@@ -992,8 +1047,8 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
                     "sequence": sub_seq,
                     "sequence_display": sub_seq_disp
                 })
+
         cover_url = it.get("cover_url") or ""
-        import hashlib
         cover_v = hashlib.sha256(cover_url.encode("utf-8")).hexdigest()[:8] if cover_url else "1"
         if media_type == "yoto":
             if cover_url and not cover_url.startswith("/api/thumb"):
@@ -1006,6 +1061,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
         else:
             base_t = cover_url or f"/api/thumb?type=abs&id={it.get('id', '')}"
             thumb = base_t if "v=" in base_t else f"{base_t}{'&' if '?' in base_t else '?'}v={cover_v}"
+
         entry = {
             "id": it.get("id"),
             "type": "abs" if m_type == "abs" else "yoto",
@@ -1013,17 +1069,109 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
             "author": it.get("author") or ("Unknown" if m_type == "abs" else "Yoto"),
             "thumb": thumb,
             "is_highlight": bool(it.get("is_highlight")),
+            "has_physical": has_phys,
             "series": primary_series,
             "sequence": s_seq,
             "sequence_display": s_seq_disp,
-            "series_list": series_list
+            "series_list": series_list,
+            "_last_played_at": it.get("last_played_at") or ""
         }
         if media_type == "yoto":
             entry["is_myo"] = (m_type == "yoto_myo")
             entry["groups"] = [s.get("name") for s in raw_list if s.get("name")]
-        results.append(entry)
-    results.sort(key=lambda x: (not bool(x.get("is_highlight")), re.sub(r"^(the|a|an)\s+", "", x["title"].strip(), flags=re.IGNORECASE).lower()))
-    return results
+        allowed_entries.append(entry)
+
+    # Partition into tiers
+    recent_items = []
+    highlight_items = []
+    pool_items = []
+
+    for e in allowed_entries:
+        lp = e.get("_last_played_at")
+        if lp and str(lp).strip():
+            recent_items.append(e)
+        elif e.get("is_highlight"):
+            highlight_items.append(e)
+        else:
+            pool_items.append(e)
+
+    # Sort recent tier newest first (lexical sort on ISO timestamp descending)
+    recent_items.sort(key=lambda x: str(x.get("_last_played_at") or ""), reverse=True)
+    recent_tier = recent_items[:8]
+    # Any overflow recent items move to pool
+    pool_items.extend(recent_items[8:])
+
+    # Sort highlight tier alphabetically ignoring articles
+    def _clean_title(t):
+        return re.sub(r"^(the|a|an)\s+", "", (t or "").strip(), flags=re.IGNORECASE).lower()
+
+    highlight_items.sort(key=lambda x: _clean_title(x.get("title", "")))
+
+    # Apply Series Book #1 Prioritization to pool_items
+    series_map = {}
+    for it in pool_items:
+        s_name = (it.get("series") or "").strip().lower()
+        if s_name:
+            series_map.setdefault(s_name, []).append(it)
+
+    # For each series, identify Book #1 (lowest sequence number >= 0.0 or lowest alphanumeric sequence_display)
+    series_first_ids = set()
+    for s_name, books in series_map.items():
+        if len(books) == 1:
+            series_first_ids.add(books[0]["id"])
+            continue
+        def _book_seq_key(b):
+            sq = b.get("sequence")
+            if sq is not None and sq >= 0.0:
+                return (0, sq)
+            disp = b.get("sequence_display") or ""
+            return (1, disp.lower() if disp else "zzzz")
+        sorted_books = sorted(books, key=_book_seq_key)
+        series_first_ids.add(sorted_books[0]["id"])
+
+    primary_pool = []
+    deferred_pool = []
+    for it in pool_items:
+        s_name = (it.get("series") or "").strip().lower()
+        if not s_name or it["id"] in series_first_ids:
+            primary_pool.append(it)
+        else:
+            deferred_pool.append(it)
+
+    # Deterministic daily shuffle on primary_pool with physical down-weighting
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    seed_base = f"{profile_key.lower()}:{today_str}"
+
+    for x in primary_pool:
+        h = int(hashlib.sha256(f"{seed_base}:{x['id']}".encode()).hexdigest()[:8], 16)
+        # Down-weight physical cards by placing them in a higher rank range
+        weight_mult = 3 if x.get("has_physical") else 1
+        x["_rank"] = h * weight_mult
+
+    primary_pool.sort(key=lambda x: x["_rank"])
+
+    # Determine slots for discovery
+    slots_left = max(0, rotation_limit - len(recent_tier) - len(highlight_items))
+    selected_discovery = primary_pool[:slots_left]
+
+    # If library has room and deferred series books exist, backfill
+    if len(selected_discovery) < slots_left and deferred_pool:
+        backfill_slots = slots_left - len(selected_discovery)
+        deferred_pool.sort(key=lambda x: (
+            x.get("sequence") if (x.get("sequence") is not None and x.get("sequence") >= 0.0) else 999999.0,
+            _clean_title(x.get("title", ""))
+        ))
+        selected_discovery.extend(deferred_pool[:backfill_slots])
+
+    final_results = recent_tier + highlight_items + selected_discovery
+
+    # Clean up internal metadata keys
+    for r in final_results:
+        r.pop("_last_played_at", None)
+        r.pop("_rank", None)
+
+    return final_results[:rotation_limit]
+
 def set_item_highlight(media_id: str, is_highlight: bool) -> bool:
     """Toggles the seasonal/pinned highlight status of a media item."""
     conn = get_db_connection()
@@ -1049,11 +1197,39 @@ def batch_update_media_highlight(media_ids: List[str], is_highlight: bool) -> in
             return cur.rowcount
     finally:
         conn.close()
-def batch_update_profile_media_permissions(media_ids: List[str], profile_actions: Dict[str, str], is_highlight: Optional[bool] = None) -> Dict[str, Any]:
+
+def set_item_physical(media_id: str, has_physical: bool) -> bool:
+    """Sets the physical plastic card ownership flag of a media item."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("UPDATE media_items SET has_physical = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (1 if has_physical else 0, media_id))
+        return True
+    finally:
+        conn.close()
+
+def batch_update_media_physical(media_ids: List[str], has_physical: bool) -> int:
+    """Atomically sets has_physical for multiple media items."""
+    if not media_ids:
+        return 0
+    conn = get_db_connection()
+    try:
+        placeholders = ",".join("?" for _ in media_ids)
+        val = 1 if has_physical else 0
+        with conn:
+            cur = conn.execute(
+                f"UPDATE media_items SET has_physical = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders});",
+                [val] + list(media_ids)
+            )
+            return cur.rowcount
+    finally:
+        conn.close()
+def batch_update_profile_media_permissions(media_ids: List[str], profile_actions: Dict[str, str], is_highlight: Optional[bool] = None, has_physical: Optional[bool] = None) -> Dict[str, Any]:
     """
     Atomically updates media permissions for multiple items across one or more profiles.
     profile_actions: { profile_id: "allow" | "exclude" | "reset" }
     is_highlight: optional boolean to update highlight status simultaneously
+    has_physical: optional boolean to update physical ownership flag simultaneously
     """
     if not media_ids:
         return {"updated_cards": 0, "affected_profiles": 0}
@@ -1061,12 +1237,18 @@ def batch_update_profile_media_permissions(media_ids: List[str], profile_actions
     try:
         with conn:
             # 1. Optional bulk highlight update
+            placeholders = ",".join("?" for _ in media_ids)
             if is_highlight is not None:
-                placeholders = ",".join("?" for _ in media_ids)
                 val = 1 if is_highlight else 0
                 conn.execute(
                     f"UPDATE media_items SET is_highlight = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders});",
                     [val] + list(media_ids)
+                )
+            if has_physical is not None:
+                val_phy = 1 if has_physical else 0
+                conn.execute(
+                    f"UPDATE media_items SET has_physical = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders});",
+                    [val_phy] + list(media_ids)
                 )
             # 2. Bulk profile permission changes
             affected_profiles = 0

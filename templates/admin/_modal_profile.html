@@ -102,6 +102,39 @@
           </div>
         </div>
 
+        <!-- Catalog Curation & Library Rotation -->
+        <div style="background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h4 style="font-size: 13px; color: #3b82f6; margin: 0;">📚 Library Rotation & Discovery Curation</h4>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="forceProfileRotationRefresh()" style="font-size: 11px; padding: 3px 8px;">
+              🔄 Refresh Rotation Now
+            </button>
+          </div>
+          <p class="text-secondary" style="font-size: 11px; margin-bottom: 12px; line-height: 1.4;">
+            Controls how many cards are visible on the child's touchscreen, when daily rotation occurs, and physical card filtering.
+          </p>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="profileRotationLimit" style="font-size: 11px;">Catalog Size Limit <span class="text-secondary">(Cards on Touch)</span></label>
+              <input type="number" id="profileRotationLimit" class="form-control" min="20" max="250" value="80">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="profileRotationHour" style="font-size: 11px;">Daily Refresh Hour <span class="text-secondary">(0-23 Local Time)</span></label>
+              <input type="number" id="profileRotationHour" class="form-control" min="0" max="23" value="3">
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; padding-top: 4px;">
+            <label class="toggle-control" style="margin: 0;">
+              <input type="checkbox" id="profileHidePhysical">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size: 12px; color: var(--text-primary);">
+              Hide Physical Cards from Touchscreen <span class="text-secondary">(Focus touch screen on digital & ABS content)</span>
+            </span>
+          </div>
+        </div>
         <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
           <button type="button" class="btn btn-secondary" onclick="closeProfileModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Profile</button>

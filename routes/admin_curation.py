@@ -61,6 +61,26 @@ def admin_toggle_highlight(media_id: str):
     return jsonify({"ok": True, "is_highlight": is_hi})
 
 
+@admin_curation_bp.route("/api/admin/catalog/physical/<media_id>", methods=["POST"])
+@require_admin
+def admin_toggle_physical(media_id: str):
+    """Toggles physical plastic card ownership flag for an item."""
+    data = request.get_json(silent=True) or {}
+    has_phys = bool(data.get("has_physical", False))
+    database.set_item_physical(media_id, has_phys)
+    return jsonify({"ok": True, "has_physical": has_phys})
+
+
+@admin_curation_bp.route("/api/admin/catalog/refresh", methods=["POST"])
+@admin_curation_bp.route("/api/admin/catalog/refresh/<profile_id>", methods=["POST"])
+@require_admin
+def admin_force_refresh_catalog(profile_id: Optional[str] = None):
+    """Forces an immediate library sync and catalog rotation re-roll."""
+    from core.scheduler import perform_library_refresh
+    count = perform_library_refresh()
+    return jsonify({"ok": True, "count": count, "profile_id": profile_id})
+
+
 @admin_curation_bp.route("/api/admin/curation/shared-rule", methods=["POST"])
 @require_admin
 def admin_update_shared_rule():
@@ -130,10 +150,12 @@ def admin_batch_permissions():
             return jsonify({"ok": False, "error": "profile_actions or is_highlight must be provided"}), 400
 
         logger.info("Batch permissions update requested: %d cards, actions: %s", len(media_ids), profile_actions)
+        has_physical = data.get("has_physical")
         result = database.batch_update_profile_media_permissions(
             media_ids=media_ids,
             profile_actions=profile_actions or {},
-            is_highlight=is_highlight
+            is_highlight=is_highlight,
+            has_physical=has_physical
         )
         logger.info("Batch permissions update succeeded: %s", result)
         return jsonify({"ok": True, **result})
@@ -161,6 +183,23 @@ def admin_batch_highlight():
         return jsonify({"ok": True, "updated_count": count, "is_highlight": is_highlight})
     except Exception as e:
         logger.exception("Error during batch highlight update: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@admin_curation_bp.route("/api/admin/curation/batch-physical", methods=["POST"])
+@require_admin
+def admin_batch_physical():
+    """Atomically sets has_physical flag for multiple media items."""
+    try:
+        data = request.get_json(silent=True) or {}
+        media_ids = data.get("media_ids", [])
+        has_phys = bool(data.get("has_physical", False))
+        if not isinstance(media_ids, list) or not media_ids:
+            return jsonify({"ok": False, "error": "media_ids must be a non-empty list"}), 400
+        count = database.batch_update_media_physical(media_ids, has_phys)
+        return jsonify({"ok": True, "updated_count": count, "has_physical": has_phys})
+    except Exception as e:
+        logger.exception("Error during batch physical update: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
