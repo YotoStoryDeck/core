@@ -149,6 +149,21 @@ export const ScreensaverScreen = {
       }
     }
 
+    // Update orbital shift transform and date
+    const shiftX = [0, 4, 6, 4, 0, -4, -6, -4];
+    const shiftY = [-4, -3, 0, 3, 4, 3, 0, -3];
+    const shiftIdx = Math.floor((hours * 60 + minutes) / 10) % 8;
+    const offX = shiftX[shiftIdx];
+    const offY = shiftY[shiftIdx];
+    const containerEl = el.querySelector('.saver-container');
+    const dateEl = el.querySelector('.saver-date');
+    if (containerEl) containerEl.style.transform = `translate(${offX}px, ${offY}px)`;
+    if (dateEl) {
+      dateEl.style.transform = `translate(${offX}px, ${offY}px)`;
+      const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+      dateEl.textContent = now.toLocaleDateString('en-US', dateOptions);
+    }
+
     // 3. If minute hasn't changed, skip digit rebuilding completely!
     if (this._lastTimeKey === timeKey) {
       return true;
@@ -219,11 +234,20 @@ export const ScreensaverScreen = {
       `;
     }
 
+    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+    const dateStr = now.toLocaleDateString('en-US', dateOptions);
+
+    const shiftX = [0, 4, 6, 4, 0, -4, -6, -4];
+    const shiftY = [-4, -3, 0, 3, 4, 3, 0, -3];
+    const shiftIdx = Math.floor((now.getHours() * 60 + now.getMinutes()) / 10) % 8;
+    const offX = shiftX[shiftIdx];
+    const offY = shiftY[shiftIdx];
+
     return `
       <div class="screensaver-screen" id="screensaverScreen" style="--saver-col:${color};">
         ${sleepBadgeHtml}
         
-        <div class="saver-container" style="gap:${gap}px;">
+        <div class="saver-container" style="gap:${gap}px; transform: translate(${offX}px, ${offY}px);">
           ${this.renderDigit(d0, W, H, t, vlen)}
           ${this.renderDigit(d1, W, H, t, vlen)}
 
@@ -237,6 +261,7 @@ export const ScreensaverScreen = {
           ${this.renderDigit(d3, W, H, t, vlen)}
         </div>
 
+        <div class="saver-date" style="transform: translate(${offX}px, ${offY}px);">${dateStr}</div>
         <div class="saver-hint">Tap anywhere to wake</div>
       </div>
     `;

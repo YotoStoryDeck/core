@@ -83,3 +83,13 @@
   opacity: 0.7;
 }
 
+
+.saver-date {
+  margin-top: 24px;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--saver-col, #f2ede0);
+  letter-spacing: 0.5px;
+  text-align: center;
+  transition: color 0.4s ease, transform 0.4s ease;
+}
