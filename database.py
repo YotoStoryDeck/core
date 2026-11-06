@@ -1167,7 +1167,7 @@ def get_api_credentials() -> Dict[str, str]:
             "abs_base_url", "abs_api_key",
             "yoto_connection_mode",
             "yoto_client_id", "yoto_client_secret", "yoto_refresh_token",
-            "yoto_bridge_url", "yoto_bridge_api_key",
+            "yoto_bridge_url", "yoto_bridge_api_key", "yoto_ui_pin",
             "tinker_api_key",
             "gemini_api_key", "anthropic_api_key", "openrouter_api_key"
         ]
@@ -1211,6 +1211,7 @@ def get_api_credentials() -> Dict[str, str]:
             "yoto_refresh_token": resolve_val("yoto_refresh_token", "YOTO_REFRESH_TOKEN", ""),
             "yoto_bridge_url": resolve_val("yoto_bridge_url", "YOTO_BRIDGE_URL", "http://yoto-bridge:8080"),
             "yoto_bridge_api_key": resolve_val("yoto_bridge_api_key", "YOTO_BRIDGE_API_KEY", ""),
+            "yoto_ui_pin": resolve_val("yoto_ui_pin", "YOTO_UI_PIN", ""),
             "tinker_api_key": resolve_val("tinker_api_key", "TINKER_API_KEY", ""),
             "gemini_api_key": resolve_val("gemini_api_key", "GEMINI_API_KEY", ""),
             "anthropic_api_key": resolve_val("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
@@ -1224,7 +1225,7 @@ def update_api_credentials(creds: Dict[str, str]) -> bool:
         "abs_base_url", "abs_api_key",
         "yoto_connection_mode",
         "yoto_client_id", "yoto_client_secret", "yoto_refresh_token",
-        "yoto_bridge_url", "yoto_bridge_api_key",
+        "yoto_bridge_url", "yoto_bridge_api_key", "yoto_ui_pin",
         "tinker_api_key",
         "gemini_api_key", "anthropic_api_key", "openrouter_api_key"
     }

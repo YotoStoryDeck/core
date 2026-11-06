@@ -307,6 +307,8 @@ def get_device_config():
                 for d in res.json().get("devices", []):
                     did = d.get("id")
                     if did:
+                        v_max = d.get("volume_max", 100)
+                        _player_vol_cache[did] = {"max": v_max, "cached_at": time.time()}
                         dev_status = (d.get("status") or "idle").lower()
                         is_playing = (dev_status == "playing")
                         is_active_media = dev_status in ("playing", "paused") or is_playing
@@ -683,6 +685,8 @@ def control_player():
     bridge_headers = {}
     if creds.get("yoto_bridge_api_key"):
         bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
+    if creds.get("yoto_ui_pin"):
+        bridge_headers["X-Pin"] = str(creds["yoto_ui_pin"]).strip()
     try:
         # 1. Volume Control
         if action == "volume":
@@ -692,7 +696,7 @@ def control_player():
             # Parent volume ceiling check & clamp using cached volume_max (avoids 300-800ms GET round-trip)
             now_ts = time.time()
             cached_vc = _player_vol_cache.get(device_id)
-            if cached_vc and (now_ts - cached_vc.get("cached_at", 0) < 300):
+            if cached_vc and (now_ts - cached_vc.get("cached_at", 0) < 30):
                 max_limit = cached_vc.get("max", 100)
             else:
                 max_limit = 100
