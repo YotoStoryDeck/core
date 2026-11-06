@@ -96,6 +96,15 @@ def init_db():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             """)
+            # 2b. Media Playback History (tracks recent card/book listening per profile)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS media_playback_history (
+                media_id TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                last_played_at DATETIME NOT NULL,
+                PRIMARY KEY (media_id, profile_id)
+            );
+            """)
             # 3. Profile Media Permissions Matrix
             conn.execute("""
             CREATE TABLE IF NOT EXISTS profile_media_permissions (
@@ -964,6 +973,49 @@ def prune_stale_media_items(valid_ids: List[str], media_types: List[str] = None)
             logger.warning("Error cleaning up cached images for pruned media items: %s", e)
 
     return removed_count
+
+def record_playback(media_id: str, profile_id: str = "default", timestamp: str = None):
+    """Records or updates the last_played_at timestamp for a media item and profile."""
+    if not media_id:
+        return
+    from datetime import datetime, timezone
+    ts = timestamp or datetime.now(timezone.utc).isoformat()
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("""
+            INSERT INTO media_playback_history (media_id, profile_id, last_played_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(media_id, profile_id) DO UPDATE SET last_played_at = excluded.last_played_at;
+            """, (media_id, (profile_id or "default").lower(), ts))
+    except Exception as e:
+        logger.warning("Error recording playback history for %s: %s", media_id, e)
+    finally:
+        conn.close()
+
+
+def get_playback_history(profile_id: str) -> Dict[str, str]:
+    """Returns dictionary of media_id -> ISO timestamp for the given profile and default."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT media_id, last_played_at FROM media_playback_history WHERE profile_id IN (?, 'default');",
+            ((profile_id or "default").lower(),)
+        )
+        res = {}
+        for r in cur.fetchall():
+            mid = r["media_id"]
+            ts = str(r["last_played_at"] or "")
+            if mid not in res or ts > res[mid]:
+                res[mid] = ts
+        return res
+    except Exception as e:
+        logger.warning("Error reading playback history for %s: %s", profile_id, e)
+        return {}
+    finally:
+        conn.close()
+
 def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> List[Dict[str, Any]]:
     """
     Retrieves filtered media catalog items for a child profile directly from SQLite cache.
@@ -983,6 +1035,34 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
     pcfg = profiles.get(profile_key.lower(), {})
     hide_physical = bool(pcfg.get("hide_physical", False))
     rotation_limit = int(pcfg.get("catalog_rotation_limit", 80) or 80)
+
+    # Sync live playback history
+    playback_history = get_playback_history(profile_key)
+    try:
+        import clients
+        import requests
+        if clients.abs_client and pcfg.get("abs_username"):
+            try:
+                abs_c = clients.abs_client
+                users_res = requests.get(f"{abs_c.base_url}/api/users", headers=abs_c.get_headers(), timeout=4)
+                if users_res.status_code == 200:
+                    target_uname = pcfg["abs_username"].strip().lower()
+                    uid = next((u.get("id") for u in users_res.json().get("users", []) if (u.get("username") or "").lower() == target_uname), None)
+                    if uid:
+                        prog_res = requests.get(f"{abs_c.base_url}/api/users/{uid}", headers=abs_c.get_headers(), timeout=4)
+                        if prog_res.status_code == 200:
+                            for mp in prog_res.json().get("mediaProgress", []):
+                                lid = mp.get("libraryItemId")
+                                lu = mp.get("lastUpdate")
+                                if lid and lu:
+                                    iso_ts = datetime.fromtimestamp(lu / 1000.0, timezone.utc).isoformat()
+                                    if lid not in playback_history or iso_ts > playback_history[lid]:
+                                        playback_history[lid] = iso_ts
+                                        record_playback(lid, profile_key, iso_ts)
+            except Exception as pe:
+                logger.debug("Notice updating live ABS progress for %s: %s", profile_key, pe)
+    except Exception as ie:
+        logger.debug("Notice initializing clients in catalog: %s", ie)
     if rotation_limit <= 0:
         rotation_limit = 80
 
@@ -1074,8 +1154,8 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
             "sequence": s_seq,
             "sequence_display": s_seq_disp,
             "series_list": series_list,
-            "last_played_at": it.get("last_played_at") or "",
-            "_last_played_at": it.get("last_played_at") or ""
+            "last_played_at": playback_history.get(it.get("id")) or it.get("last_played_at") or "",
+            "_last_played_at": playback_history.get(it.get("id")) or it.get("last_played_at") or ""
         }
         if media_type == "yoto":
             entry["is_myo"] = (m_type == "yoto_myo")

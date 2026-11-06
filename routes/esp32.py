@@ -607,6 +607,7 @@ def play_media():
                 res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
                 if res.status_code in (200, 204):
                     logger.info("Bridge accepted Yoto card play: HTTP %d (Status: playing)", res.status_code)
+                    database.record_playback(media_id, child)
                     return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
                 logger.warning("Bridge returned HTTP %d for Yoto card play: %s", res.status_code, res.text)
                 return jsonify({"ok": False, "error": f"Bridge rejected Yoto card playback (HTTP {res.status_code})"}), res.status_code
@@ -625,6 +626,7 @@ def play_media():
         success = clients.yoto_client.start_playback(device_id, media_id, chapter, chapter_key=ck_val, track_key=tk_val)
         if success:
             logger.info("Direct Yoto Cloud accepted playback command for %s", device_id)
+            database.record_playback(media_id, child)
             return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
         logger.error("Direct Yoto Cloud play command failed for player %s", device_id)
         return jsonify({"ok": False, "error": "Yoto player command failed"}), 502
@@ -651,6 +653,7 @@ def play_media():
                 resumed_title = b_data.get("chapter_title") or ""
                 resumed_pos = b_data.get("position") or 0
                 logger.info("Bridge accepted ABS stream dispatch: HTTP %d (ch=%s, pos=%s)", res.status_code, resumed_ch, resumed_pos)
+                database.record_playback(media_id, child)
                 return jsonify({
                     "ok": True,
                     "status": "playing",
