@@ -675,11 +675,12 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
         )
 
         items = database.get_catalog_items_for_profile(prof_key, "yoto")
-        self.assertEqual(len(items), 2)
         # 1. Recent item MUST be first!
         self.assertEqual(items[0]["id"], "seq_recent_card")
-        # 2. Book #1 of series MUST be selected over Book #2 for the 1 remaining discovery slot!
+        # 2. Atomic whole-series rotation: when a series is pulled into discovery, all books are preserved in sequence order!
         self.assertEqual(items[1]["id"], "seq_series_b1")
+        self.assertEqual(items[2]["id"], "seq_series_b2")
+        self.assertEqual(len(items), 3)
 
         # Now test hide_physical
         database.upsert_profile(prof_key, {

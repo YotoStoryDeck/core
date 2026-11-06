@@ -195,6 +195,13 @@ def get_device_media_tracks(media_id: str):
     from routes.admin_curation import get_media_tracks_data
     try:
         data = get_media_tracks_data(media_id)
+        if isinstance(data, dict):
+            if "title" in data and isinstance(data["title"], str):
+                data["title"] = database.sanitize_display_text(data["title"])
+            if "tracks" in data and isinstance(data["tracks"], list):
+                for trk in data["tracks"]:
+                    if isinstance(trk, dict) and "title" in trk and isinstance(trk["title"], str):
+                        trk["title"] = database.sanitize_display_text(trk["title"])
         return jsonify(data)
     except Exception as e:
         logger.exception("Error getting device tracks for %s: %s", media_id, e)

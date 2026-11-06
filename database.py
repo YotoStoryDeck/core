@@ -1047,6 +1047,24 @@ def get_playback_history(profile_id: str) -> Dict[str, str]:
     finally:
         conn.close()
 
+def sanitize_display_text(text: str) -> str:
+    """
+    Normalizes accented characters and smart typography into standard ASCII
+    for glitch-free rendering on microcontroller LCD fonts (e.g. Pokémon -> Pokemon, Peppa’s -> Peppa's).
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+    replacements = {
+        "\u2019": "'", "\u2018": "'", "\u201a": "'", "\u201b": "'", "\u00b4": "'", "`": "'",
+        "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
+        "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2026": "...",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    import unicodedata
+    decomposed = unicodedata.normalize('NFKD', text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
 def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> List[Dict[str, Any]]:
     """
     Retrieves filtered media catalog items for a child profile directly from SQLite cache.
@@ -1142,14 +1160,14 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
         if hide_physical and has_phys:
             continue
 
-        title = it.get("title") or ""
-        primary_series = it.get("series") or ""
+        title = sanitize_display_text(it.get("title") or "")
+        primary_series = sanitize_display_text(it.get("series") or "")
         raw_order = it.get("series_order") or ""
         raw_list = it.get("series_list") or []
         s_seq, s_seq_disp = _parse_seq(raw_order, title)
         series_list = []
         for s in raw_list:
-            s_name = s.get("name") or ""
+            s_name = sanitize_display_text(s.get("name") or "")
             s_ord = s.get("order") or s.get("sequence_display") or s.get("sequence") or raw_order
             sub_seq, sub_seq_disp = _parse_seq(s_ord, title)
             if s_name:
@@ -1177,7 +1195,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
             "id": it.get("id"),
             "type": "abs" if m_type == "abs" else "yoto",
             "title": title,
-            "author": it.get("author") or ("Unknown" if m_type == "abs" else "Yoto"),
+            "author": sanitize_display_text(it.get("author") or ("Unknown" if m_type == "abs" else "Yoto")),
             "thumb": thumb,
             "is_highlight": bool(it.get("is_highlight")),
             "has_physical": has_phys,
@@ -1219,70 +1237,106 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
 
     highlight_items.sort(key=lambda x: _clean_title(x.get("title", "")))
 
-    # Apply Series Book #1 Prioritization to pool_items
-    series_map = {}
-    for it in pool_items:
-        s_name = (it.get("series") or "").strip().lower()
+    # --------------------------------------------------------------------------
+    # Atomic Whole-Series Rotation & Complete Series Preservation:
+    # Build complete mapping of ALL allowed books by series name.
+    # --------------------------------------------------------------------------
+    series_all_books = {}
+    for it in allowed_entries:
+        s_name = (it.get("series") or "").strip()
         if s_name:
-            series_map.setdefault(s_name, []).append(it)
+            series_all_books.setdefault(s_name.lower(), []).append(it)
+        for extra in (it.get("series_list") or []):
+            ex_name = (extra.get("name") or "").strip()
+            if ex_name:
+                series_all_books.setdefault(ex_name.lower(), []).append(it)
 
-    # For each series, identify Book #1 (lowest sequence number >= 0.0 or lowest alphanumeric sequence_display)
-    series_first_ids = set()
-    for s_name, books in series_map.items():
-        if len(books) == 1:
-            series_first_ids.add(books[0]["id"])
-            continue
-        def _book_seq_key(b):
-            sq = b.get("sequence")
-            if sq is not None and sq >= 0.0:
-                return (0, sq)
-            disp = b.get("sequence_display") or ""
-            return (1, disp.lower() if disp else "zzzz")
-        sorted_books = sorted(books, key=_book_seq_key)
-        series_first_ids.add(sorted_books[0]["id"])
+    def _book_seq_key(b):
+        sq = b.get("sequence")
+        if sq is not None and sq >= 0.0:
+            return (0, sq)
+        disp = b.get("sequence_display") or ""
+        return (1, disp.lower() if disp else "zzzz")
 
-    primary_pool = []
-    deferred_pool = []
+    for s_low, blist in series_all_books.items():
+        seen_b = set()
+        dedup_b = []
+        for b in blist:
+            if b["id"] not in seen_b:
+                seen_b.add(b["id"])
+                dedup_b.append(b)
+        series_all_books[s_low] = sorted(dedup_b, key=_book_seq_key)
+
+    pulled_ids = set()
+    final_results = []
+
+    def _pull_item_and_whole_series(item):
+        if item["id"] in pulled_ids:
+            return
+        pulled_ids.add(item["id"])
+        final_results.append(item)
+        # Pull all sister books in all series/groups this item belongs to
+        sn_list = []
+        p_ser = (item.get("series") or "").strip()
+        if p_ser:
+            sn_list.append(p_ser.lower())
+        for ex in (item.get("series_list") or []):
+            exn = (ex.get("name") or "").strip()
+            if exn and exn.lower() not in sn_list:
+                sn_list.append(exn.lower())
+        for sn in sn_list:
+            for sister in series_all_books.get(sn, []):
+                if sister["id"] not in pulled_ids:
+                    pulled_ids.add(sister["id"])
+                    final_results.append(sister)
+
+    # 1. Pull Recent Tier and any series they belong to as whole
+    for r in recent_tier:
+        _pull_item_and_whole_series(r)
+
+    # 2. Pull Highlight Tier and any series they belong to as whole
+    for h in highlight_items:
+        _pull_item_and_whole_series(h)
+
+    # 3. Group remaining unpulled items into atomic clusters (standalone card or whole series)
+    cluster_map = {}
     for it in pool_items:
-        s_name = (it.get("series") or "").strip().lower()
-        if not s_name or it["id"] in series_first_ids:
-            primary_pool.append(it)
+        if it["id"] in pulled_ids:
+            continue
+        p_ser = (it.get("series") or "").strip()
+        if p_ser:
+            c_key = f"series:{p_ser.lower()}"
         else:
-            deferred_pool.append(it)
+            c_key = f"card:{it['id']}"
+        cluster_map.setdefault(c_key, []).append(it)
 
-    # Deterministic daily shuffle on primary_pool with physical down-weighting
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     seed_base = f"{profile_key.lower()}:{today_str}"
 
-    for x in primary_pool:
-        h = int(hashlib.sha256(f"{seed_base}:{x['id']}".encode()).hexdigest()[:8], 16)
-        # Down-weight physical cards by placing them in a higher rank range
-        weight_mult = 3 if x.get("has_physical") else 1
-        x["_rank"] = h * weight_mult
+    cluster_list = []
+    for c_key, c_books in cluster_map.items():
+        c_books.sort(key=_book_seq_key)
+        rep_id = c_books[0]["id"]
+        h = int(hashlib.sha256(f"{seed_base}:{rep_id}".encode()).hexdigest()[:8], 16)
+        all_phys = all(b.get("has_physical") for b in c_books)
+        weight_mult = 3 if all_phys else 1
+        rank = h * weight_mult
+        cluster_list.append((rank, c_key, c_books))
 
-    primary_pool.sort(key=lambda x: x["_rank"])
+    cluster_list.sort(key=lambda x: x[0])
 
-    # Determine slots for discovery
-    slots_left = max(0, rotation_limit - len(recent_tier) - len(highlight_items))
-    selected_discovery = primary_pool[:slots_left]
-
-    # If library has room and deferred series books exist, backfill
-    if len(selected_discovery) < slots_left and deferred_pool:
-        backfill_slots = slots_left - len(selected_discovery)
-        deferred_pool.sort(key=lambda x: (
-            x.get("sequence") if (x.get("sequence") is not None and x.get("sequence") >= 0.0) else 999999.0,
-            _clean_title(x.get("title", ""))
-        ))
-        selected_discovery.extend(deferred_pool[:backfill_slots])
-
-    final_results = recent_tier + highlight_items + selected_discovery
+    for rank, c_key, c_books in cluster_list:
+        if len(final_results) >= rotation_limit:
+            break
+        for b in c_books:
+            _pull_item_and_whole_series(b)
 
     # Clean up internal metadata keys
     for r in final_results:
         r.pop("_last_played_at", None)
         r.pop("_rank", None)
 
-    return final_results[:rotation_limit]
+    return final_results
 
 def set_item_highlight(media_id: str, is_highlight: bool) -> bool:
     """Toggles the seasonal/pinned highlight status of a media item."""

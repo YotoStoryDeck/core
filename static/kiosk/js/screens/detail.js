@@ -52,7 +52,10 @@ export const DetailScreen = {
         <div class="dright">
           <div class="dtitle">${Utils.esc(c.title)}</div>
           <div class="dsub">${Utils.esc(c.author || (c.source === 'abs' ? 'Audiobookshelf' : 'Yoto'))}</div>
-          <div class="dsum">${(c.chapters && c.chapters.length > 0) ? `${c.chapters.length} chapters &middot; ${Utils.longdur(total || c.duration)}` : 'Loading chapters...'}</div>
+          <div class="dsum">
+            <span>${(c.chapters && c.chapters.length > 0) ? `${c.chapters.length} chapters &middot; ${Utils.longdur(total || c.duration)}` : 'Loading chapters...'}</span>
+            ${c.series ? `<button class="series-badge-btn" data-series="${Utils.esc(c.series)}" style="margin-left:12px; background:#1e293b; color:#fff; border:none; border-radius:12px; padding:3px 12px; font-size:0.85em; cursor:pointer; font-weight:600;">Series: ${Utils.esc(c.series)} &rsaquo;</button>` : ''}
+          </div>
           <div class="chapters">
             ${rows.length ? rows : '<div style="padding:20px; color:#888;">Loading tracklist...</div>'}
           </div>
