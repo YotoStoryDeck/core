@@ -1074,6 +1074,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
             "sequence": s_seq,
             "sequence_display": s_seq_disp,
             "series_list": series_list,
+            "last_played_at": it.get("last_played_at") or "",
             "_last_played_at": it.get("last_played_at") or ""
         }
         if media_type == "yoto":
