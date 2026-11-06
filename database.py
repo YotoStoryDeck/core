@@ -706,6 +706,22 @@ def update_esp32_device(mac_address: str, updates: Dict[str, Any]) -> bool:
             cur.execute("SELECT mac_address FROM esp32_devices WHERE mac_address = ?;", (mac_clean,))
             if not cur.fetchone():
                 return False
+
+            # Merge and serialize settings dictionary into settings_json if provided
+            if "settings" in updates and isinstance(updates["settings"], dict):
+                existing_settings = {}
+                cur.execute("SELECT settings_json FROM esp32_devices WHERE mac_address = ?;", (mac_clean,))
+                r = cur.fetchone()
+                if r and r["settings_json"]:
+                    try:
+                        import json as _json
+                        existing_settings = _json.loads(r["settings_json"]) or {}
+                    except Exception:
+                        existing_settings = {}
+                existing_settings.update(updates["settings"])
+                import json as _json
+                updates["settings_json"] = _json.dumps(existing_settings)
+
             fields = []
             values = []
             for k in [

@@ -71,28 +71,34 @@ function renderDevicesTable() {
 
     const ipDisplay = d.ip_address ? `<span id="ping-${d.mac_address.replace(/:/g, '')}">${escapeHtml(d.ip_address)}</span>` : "Unknown";
 
-    const editBtn = `<button class="btn btn-primary btn-sm" title="Configure Profile & Player" onclick="openEditDeviceModal('${escapeHtml(d.mac_address)}')">⚙️ Edit</button>`;
-    const pingBtn = `<button class="btn btn-secondary btn-sm" style="margin-left: 4px;" title="Ping Device" onclick="pingSingleDevice('${escapeHtml(d.mac_address)}')">📡</button>`;
-    const deleteBtn = `<button class="btn btn-danger btn-sm" style="margin-left: 4px;" title="Delete Device" onclick="deleteDevice('${escapeHtml(d.mac_address)}')">🗑️</button>`;
+    const safeMac = escapeHtml(d.mac_address).replace(/[:]/g, '');
+    const editBtn = `<button class="btn btn-primary btn-sm" title="Configure Profile, Player & Settings" onclick="openEditDeviceModal('${escapeHtml(d.mac_address)}')">⚙️ Edit</button>`;
+    const pingBtn = `<button class="btn btn-secondary btn-sm" title="Ping Device" onclick="pingSingleDevice('${escapeHtml(d.mac_address)}')">📡 Ping</button>`;
 
-    let actionBtns = "";
-    if (d.is_approved) {
-      actionBtns = `
+    const actionMenu = `
+      <div class="dropdown-wrapper" style="position: relative; display: inline-block;">
+        <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" title="Device Actions (Quarantine, Revoke, Delete)" onclick="toggleDeviceActionMenu(event, '${escapeHtml(d.mac_address)}')">
+          Actions ▾
+        </button>
+        <div id="action-menu-${safeMac}" class="device-dropdown-menu" style="display: none;">
+          ${d.is_approved
+            ? `<button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)"><span>⚠️</span> Quarantine</button>`
+            : `<button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)"><span>✅</span> Approve Device</button>`
+          }
+          <button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); revokeDeviceAccess('${escapeHtml(d.mac_address)}')"><span>🔒</span> Revoke Access</button>
+          <div class="device-dropdown-divider"></div>
+          <button type="button" class="device-dropdown-item text-danger" onclick="closeAllDeviceActionMenus(); deleteDevice('${escapeHtml(d.mac_address)}')"><span>🗑️</span> Delete Device</button>
+        </div>
+      </div>
+    `;
+
+    const actionBtns = `
+      <div class="device-actions-wrapper">
         ${editBtn}
-        <button class="btn btn-secondary btn-sm" style="margin-left: 4px;" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)">Quarantine</button>
-        <button class="btn btn-secondary btn-sm" style="margin-left: 4px;" onclick="openResetPinModal('${escapeHtml(d.mac_address)}', '${escapeHtml(d.friendly_name)}')">🔑 PIN</button>
-        <button class="btn btn-secondary btn-sm" style="margin-left: 4px;" onclick="revokeDeviceAccess('${escapeHtml(d.mac_address)}')">🔒 Revoke</button>
         ${pingBtn}
-        ${deleteBtn}
-      `;
-    } else {
-      actionBtns = `
-        <button class="btn btn-primary btn-sm" onclick="toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)">Approve Device</button>
-        ${editBtn}
-        ${pingBtn}
-        ${deleteBtn}
-      `;
-    }
+        ${actionMenu}
+      </div>
+    `;
 
     tr.innerHTML = `
       <td><strong>${escapeHtml(d.friendly_name)}</strong></td>
@@ -139,6 +145,26 @@ async function openEditDeviceModal(mac) {
   document.getElementById("editDeviceFriendlyName").textContent = d.friendly_name || "ESP32 Controller";
   document.getElementById("editDeviceMac").textContent = mac;
   document.getElementById("editDeviceNameInput").value = d.friendly_name || "";
+  if (document.getElementById("editDevicePinInput")) {
+    document.getElementById("editDevicePinInput").value = d.parent_pin || "";
+  }
+
+  let devSettings = {};
+  if (d.settings_json) {
+    try {
+      devSettings = typeof d.settings_json === "string" ? JSON.parse(d.settings_json) : (d.settings_json || {});
+    } catch (e) {
+      devSettings = {};
+    }
+  }
+  const rotHour = devSettings.rotation_hour ?? devSettings.refresh_hour ?? 3;
+  const cardQty = devSettings.rotation_limit ?? devSettings.card_qty ?? 80;
+  if (document.getElementById("editDeviceRefreshHourInput")) {
+    document.getElementById("editDeviceRefreshHourInput").value = rotHour;
+  }
+  if (document.getElementById("editDeviceCardQtyInput")) {
+    document.getElementById("editDeviceCardQtyInput").value = cardQty;
+  }
 
   // Populate profiles dropdown
   const profSelect = document.getElementById("editDeviceProfileSelect");
@@ -196,6 +222,20 @@ async function submitEditDevice() {
   const friendlyName = (document.getElementById("editDeviceNameInput").value || "").trim();
   const assignedProfile = document.getElementById("editDeviceProfileSelect").value || null;
   const lockedPlayer = document.getElementById("editDevicePlayerSelect").value || "";
+  const pinInput = document.getElementById("editDevicePinInput");
+  const parentPin = (pinInput ? pinInput.value : "").trim();
+
+  if (parentPin && !/^\d{4}$/.test(parentPin)) {
+    showToast("Parent PIN must be exactly 4 numeric digits (or blank to disable).", "danger");
+    if (pinInput) pinInput.focus();
+    return;
+  }
+
+  const rotHourVal = document.getElementById("editDeviceRefreshHourInput") ? parseInt(document.getElementById("editDeviceRefreshHourInput").value, 10) : 3;
+  const cardQtyVal = document.getElementById("editDeviceCardQtyInput") ? parseInt(document.getElementById("editDeviceCardQtyInput").value, 10) : 80;
+
+  const rotHour = isNaN(rotHourVal) ? 3 : Math.max(0, Math.min(23, rotHourVal));
+  const cardQty = isNaN(cardQtyVal) ? 80 : Math.max(10, Math.min(500, cardQtyVal));
 
   try {
     const res = await fetch(`/api/admin/devices/${encodeURIComponent(currentEditDeviceMac)}`, {
@@ -205,7 +245,14 @@ async function submitEditDevice() {
         friendly_name: friendlyName,
         assigned_profile_id: assignedProfile,
         locked_player_id: lockedPlayer,
-        lock_player: lockedPlayer ? 1 : 0
+        lock_player: lockedPlayer ? 1 : 0,
+        parent_pin: parentPin,
+        settings: {
+          rotation_hour: rotHour,
+          refresh_hour: rotHour,
+          rotation_limit: cardQty,
+          card_qty: cardQty
+        }
       })
     });
     const data = await res.json();
@@ -373,3 +420,31 @@ async function pruneStaleDevices() {
     showToast("Network error pruning devices.", "danger");
   }
 }
+
+
+// ============================================================================
+// Device Actions Dropdown Toggle & Auto-Close
+// ============================================================================
+
+function toggleDeviceActionMenu(event, mac) {
+  event.stopPropagation();
+  const safeMac = mac.replace(/[:]/g, '');
+  const menu = document.getElementById(`action-menu-${safeMac}`);
+  const isCurrentlyOpen = menu && menu.style.display !== "none";
+  closeAllDeviceActionMenus();
+  if (menu && !isCurrentlyOpen) {
+    menu.style.display = "flex";
+  }
+}
+
+function closeAllDeviceActionMenus() {
+  document.querySelectorAll(".device-dropdown-menu").forEach(m => {
+    m.style.display = "none";
+  });
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".dropdown-wrapper")) {
+    closeAllDeviceActionMenus();
+  }
+});

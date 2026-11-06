@@ -443,7 +443,10 @@ def get_device_config():
             "default_player_id": def_id,
             "default_player_name": def_name,
             "player_ids": pdata.get("player_ids", []),
-            "players": profile_players
+            "players": profile_players,
+            "catalog_rotation_limit": int(pdata.get("catalog_rotation_limit", 80) or 80),
+            "catalog_rotation_hour": int(pdata.get("catalog_rotation_hour", 3) or 3),
+            "hide_physical": bool(pdata.get("hide_physical", False))
         })
     settings = database.get_system_settings()
     exclude_single = bool(settings.get("exclude_single_card_series", True))

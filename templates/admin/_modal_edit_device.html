@@ -1,6 +1,6 @@
 <!-- Modal: Configure ESP32 Controller Profile & Player Assignment -->
 <div class="modal" id="editDeviceModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1050; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
-  <div class="modal-content" style="max-width: 480px; width: 90%; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+  <div class="modal-content" style="max-width: 520px; width: 90%; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; box-shadow: 0 12px 36px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
       <div style="display: flex; align-items: center; gap: 10px;">
         <span style="font-size: 24px;">📟</span>
@@ -10,7 +10,7 @@
     </div>
     
     <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
-      Lock <strong id="editDeviceFriendlyName" style="color:var(--text-primary);">ESP32 Controller</strong> (<code id="editDeviceMac"></code>) to a single child profile and target Yoto player.
+      Lock <strong id="editDeviceFriendlyName" style="color:var(--text-primary);">ESP32 Controller</strong> (<code id="editDeviceMac"></code>) to a child profile, target player, and device-level preferences.
     </p>
 
     <!-- Friendly Name -->
@@ -24,23 +24,57 @@
     <!-- Assigned Profile -->
     <div style="margin-bottom: 14px;">
       <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
-        Assigned Child Profile (Required for Single-User Touch):
+        Assigned Child Profile (Single-User Boot):
       </label>
       <select id="editDeviceProfileSelect" class="form-control" onchange="onEditDeviceProfileChange()">
         <!-- Populated via JS -->
       </select>
-      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">The controller will boot directly into this profile's library.</small>
+      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">When selected, the controller boots directly into this profile's library.</small>
     </div>
 
     <!-- Target Yoto Player -->
     <div style="margin-bottom: 16px;">
       <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
-        Target Yoto Player (Required for Audio):
+        Target Yoto Player (Audio Output):
       </label>
       <select id="editDevicePlayerSelect" class="form-control">
         <!-- Populated via JS -->
       </select>
-      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">Only players available to the selected profile are shown.</small>
+      <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px;">Audio playback commands from this screen are routed directly to this player.</small>
+    </div>
+
+    <!-- Parent PIN -->
+    <div style="margin-bottom: 16px;">
+      <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">
+        Parent PIN (4 Digits):
+      </label>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <input type="text" id="editDevicePinInput" class="form-control" maxlength="4" placeholder="1234" style="letter-spacing: 4px; font-weight: bold; width: 120px; font-size: 16px; text-align: center;">
+        <small style="color: var(--text-muted); font-size: 12px; line-height: 1.4;">PIN required to unlock Grown-Ups settings on this device (leave blank to allow unlock without PIN).</small>
+      </div>
+    </div>
+
+    <!-- Device Rotation & Catalog Settings Section -->
+    <div style="border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); padding-top: 14px; margin-top: 14px;">
+      <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+        <span>🔄</span> Device Curation & Rotation Preferences
+      </h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px;">
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
+            Daily Rotation Hour (0–23):
+          </label>
+          <input type="number" id="editDeviceRefreshHourInput" class="form-control" min="0" max="23" placeholder="3">
+          <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px;">Hour (0=Midnight, 3=3 AM) to re-roll catalog rotation.</small>
+        </div>
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
+            Card Limit / Qty:
+          </label>
+          <input type="number" id="editDeviceCardQtyInput" class="form-control" min="10" max="500" placeholder="80">
+          <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px;">Max cards in discovery pool (default: 80).</small>
+        </div>
+      </div>
     </div>
 
     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
