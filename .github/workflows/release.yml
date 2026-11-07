@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   release:
-    name: Build & Package Core (with Web-Touch Assets)
+    name: Build & Package Core
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Core Code
@@ -47,14 +47,6 @@ jobs:
           path: core
           fetch-depth: 0
 
-      - name: Checkout Touch Repository (for web-touch companion assets)
-        uses: actions/checkout@v4
-        with:
-          repository: YotoStoryDeck/touch
-          ref: ${{ github.ref_name == 'dev' && 'dev' || 'main' }}
-          path: touch
-          fetch-depth: 1
-
       - name: Print Build Environment & Checked-Out Ref
         run: |
           echo "GITHUB_REF: ${GITHUB_REF}"
@@ -63,9 +55,6 @@ jobs:
           echo "=== Core Repository Status ==="
           git -C core rev-parse HEAD
           git -C core status
-          echo "=== Touch Repository Status ==="
-          git -C touch rev-parse HEAD
-          git -C touch status
 
       - name: Determine Tag & Release Classification
         id: meta
@@ -79,12 +68,10 @@ jobs:
             --release-type "${{ github.event.inputs.release_type }}" \
             --custom-tag "${{ github.event.inputs.custom_tag }}"
 
-      - name: Bundle Web-Touch Assets into Core Distribution
+      - name: Package Distribution
         run: |
           mkdir -p core/dist
-          # Bundle static web-touch assets directly into core static/kiosk directory
           mkdir -p core/static/kiosk
-          cp -r touch/web-touch/* core/static/kiosk/
           
           # Create comprehensive self-contained distribution tarball
           PACKAGE_NAME="storydeck-core-${{ steps.meta.outputs.tag }}.tar.gz"

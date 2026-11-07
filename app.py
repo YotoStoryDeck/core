@@ -42,14 +42,8 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-# Serve StoryDeck Touch web companion / simulator
-candidate_kiosk_dirs = [
-    base_dir.parent / "storydeck-touch" / "web-touch",
-    base_dir.parent / "touch" / "web-touch",
-    Path("/app/web-touch"),
-    base_dir / "static" / "kiosk"
-]
-prototype_dir = next((d for d in candidate_kiosk_dirs if d.is_dir()), base_dir.parent / "storydeck-touch" / "web-touch")
+# Serve Wall Tablet Kiosk & Web Client
+kiosk_dir = base_dir / "static" / "kiosk"
 
 @app.route("/simulator")
 def redirect_simulator():
@@ -74,7 +68,7 @@ def redirect_kiosk():
 @app.route("/kiosk/<path:filename>")
 def serve_simulator(filename="index.html"):
     from flask import send_from_directory
-    return send_from_directory(str(prototype_dir), filename)
+    return send_from_directory(str(kiosk_dir), filename)
 
 
 
