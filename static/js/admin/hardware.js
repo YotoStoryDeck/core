@@ -69,7 +69,7 @@ function renderDevicesTable() {
       ? `<span class="badge badge-success">Approved</span>`
       : `<span class="badge badge-danger">Quarantined</span>`;
 
-    const ipDisplay = d.ip_address ? `<span id="ping-${d.mac_address.replace(/:/g, '')}">${escapeHtml(d.ip_address)}</span>` : "Unknown";
+    const ipDisplay = d.ip_address ? `<span id="ping-${d.mac_address.replace(/:/g, '')}" data-ip="${escapeHtml(d.ip_address)}">${escapeHtml(d.ip_address)}</span>` : `<span id="ping-${d.mac_address.replace(/:/g, '')}" data-ip="">Unknown</span>`;
 
     const safeMac = escapeHtml(d.mac_address).replace(/[:]/g, '');
     const editBtn = `<button class="btn btn-primary btn-sm" title="Configure Profile, Player & Settings" onclick="openEditDeviceModal('${escapeHtml(d.mac_address)}')">⚙️ Edit</button>`;
@@ -370,21 +370,27 @@ async function deleteDevice(mac) {
 async function pingSingleDevice(mac) {
   const elId = "ping-" + mac.replace(/:/g, "");
   const el = document.getElementById(elId);
-  const origText = el ? el.textContent : "";
-  if (el) el.innerHTML = `${origText} <span class="spinner-border spinner-border-sm"></span>`;
+  const baseIp = (el?.dataset.ip) || (el ? el.textContent.split(/[●•]/)[0].trim() : "");
+  if (el) el.innerHTML = `${escapeHtml(baseIp || "Unknown")} <span class="spinner-border spinner-border-sm" style="width: 0.85rem; height: 0.85rem;"></span>`;
   try {
     const res = await fetch(`/api/admin/devices/${encodeURIComponent(mac)}/ping`);
     const data = await res.json();
     if (res.ok && data.online) {
-      showToast(`Device ${mac} is ONLINE at ${data.ip}`, "success");
-      if (el) el.innerHTML = `${data.ip} <span style="color: #10b981; font-weight: bold;">● Online</span>`;
+      const displayIp = data.ip || baseIp || "Online";
+      if (el) {
+        el.dataset.ip = data.ip || baseIp;
+        el.innerHTML = `${escapeHtml(displayIp)} <span style="color: #10b981; font-weight: bold;">● Online</span>`;
+      }
+      showToast(`Device ${mac} is ONLINE at ${displayIp}`, "success");
     } else {
       showToast(`Device ${mac} is OFFLINE (${data.error || 'unreachable'})`, "warning");
-      if (el) el.innerHTML = `${origText} <span style="color: #ef4444; font-weight: bold;">● Offline</span>`;
+      if (el) {
+        el.innerHTML = `${escapeHtml(baseIp || "Unknown")} <span style="color: #ef4444; font-weight: bold;">● Offline</span>`;
+      }
     }
   } catch (err) {
     showToast(`Failed to ping ${mac}`, "danger");
-    if (el) el.textContent = origText;
+    if (el) el.innerHTML = `${escapeHtml(baseIp || "Unknown")} <span style="color: #ef4444; font-weight: bold;">● Offline</span>`;
   }
 }
 
