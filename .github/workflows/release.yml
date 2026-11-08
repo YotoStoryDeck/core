@@ -138,20 +138,27 @@ jobs:
 EOF
             generate_changelog "${NOTES_FILE}"
           else
-            # Full releases look for release-v[tag].md (e.g., release-v1.1.0.md)
+            # Full releases look for release-v[tag].md in releases/ or release/ folder
             MATCHED_FILE=""
             CLEAN_VER=$(echo "${TAG}" | sed -E 's/^[[:space:]]*[vV]+//')
-            if [ -f "release-${TAG}.md" ]; then
-              MATCHED_FILE="release-${TAG}.md"
-            elif [ -f "release-v${CLEAN_VER}.md" ]; then
-              MATCHED_FILE="release-v${CLEAN_VER}.md"
-            fi
+            for CANDIDATE in \
+              "releases/release-${TAG}.md" \
+              "releases/release-v${CLEAN_VER}.md" \
+              "release/release-${TAG}.md" \
+              "release/release-v${CLEAN_VER}.md" \
+              "release-${TAG}.md" \
+              "release-v${CLEAN_VER}.md"; do
+              if [ -f "${CANDIDATE}" ]; then
+                MATCHED_FILE="${CANDIDATE}"
+                break
+              fi
+            done
 
             if [ -n "${MATCHED_FILE}" ]; then
               echo "Found matching release file for full release: ${MATCHED_FILE}"
               cat "${MATCHED_FILE}" >> "${NOTES_FILE}"
             else
-              echo "No matching release-${TAG}.md found. Falling back to commit changelog."
+              echo "No matching release file found for ${TAG}. Falling back to commit changelog."
               generate_changelog "${NOTES_FILE}"
             fi
           fi
