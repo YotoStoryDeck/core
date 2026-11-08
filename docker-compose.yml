@@ -7,7 +7,7 @@ services:
       - "5055:5055"
     environment:
       - PORT=5055
-      - APP_VERSION=${APP_VERSION:-v1.1.0-rc.20261105.1}
+      - APP_VERSION=${APP_VERSION:-}
       - ABS_BASE_URL=http://audiobookshelf:80
       - ABS_API_KEY=${ABS_API_KEY}
       - YOTO_CLIENT_ID=${YOTO_CLIENT_ID}

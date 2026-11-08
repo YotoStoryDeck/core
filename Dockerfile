@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-ARG APP_VERSION=v1.1.0-rc.20261105.1
+ARG APP_VERSION=""
 ENV APP_VERSION=${APP_VERSION}
 
 # Prevent Python from writing .pyc and enable buffer flushing
