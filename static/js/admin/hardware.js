@@ -38,8 +38,28 @@ function renderDevicesTable() {
 
   currentDevices.forEach(d => {
     const tr = document.createElement("tr");
+    const safeMac = escapeHtml(d.mac_address).replace(/[:]/g, '');
 
-    // Profile display pill
+    // 1. Device Type Detection (Kiosk vs Touch)
+    const isKiosk = (d.mac_address && d.mac_address.startsWith("kiosk-")) ||
+                    (d.firmware_version && (d.firmware_version.includes("-web") || d.firmware_version.includes("kiosk"))) ||
+                    (d.friendly_name && d.friendly_name.toLowerCase().includes("kiosk"));
+
+    const typeBadge = isKiosk
+      ? `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">🖥️ Tablet Kiosk</span>`
+      : `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;">📟 ESP32 Touch</span>`;
+
+    // 2. Stacked Network & MAC
+    const ipDisplay = d.ip_address
+      ? `<span id="ping-${safeMac}" data-ip="${escapeHtml(d.ip_address)}" style="font-weight: 500;">${escapeHtml(d.ip_address)}</span>`
+      : `<span id="ping-${safeMac}" data-ip="" style="color: var(--text-muted);">No IP</span>`;
+
+    // 3. Engine / Firmware Version Pill
+    const rawFw = d.firmware_version ? d.firmware_version.trim() : "1.0.0";
+    const fwDisplay = rawFw.startsWith("v") ? rawFw : `v${rawFw}`;
+    const versionBadge = `<span class="badge badge-subtle" style="font-family: monospace; font-size: 11px;">${escapeHtml(fwDisplay)}</span>`;
+
+    // 4. Profile display pill
     let profileDisplay = `<span style="color: var(--text-muted);">None</span>`;
     if (d.assigned_profile_id && currentProfiles[d.assigned_profile_id]) {
       const p = currentProfiles[d.assigned_profile_id];
@@ -53,7 +73,7 @@ function renderDevicesTable() {
       `;
     }
 
-    // Player display pill
+    // 5. Player display pill
     let playerDisplay = `<span style="color: var(--text-muted);">None</span>`;
     if (d.locked_player_id) {
       const pName = getPlayerDisplayName(d.locked_player_id);
@@ -65,22 +85,14 @@ function renderDevicesTable() {
       `;
     }
 
-    const statusBadge = d.is_approved
-      ? `<span class="badge badge-success">Approved</span>`
-      : `<span class="badge badge-danger">Quarantined</span>`;
-
-    const ipDisplay = d.ip_address ? `<span id="ping-${d.mac_address.replace(/:/g, '')}" data-ip="${escapeHtml(d.ip_address)}">${escapeHtml(d.ip_address)}</span>` : `<span id="ping-${d.mac_address.replace(/:/g, '')}" data-ip="">Unknown</span>`;
-
-    const safeMac = escapeHtml(d.mac_address).replace(/[:]/g, '');
-    const editBtn = `<button class="btn btn-primary btn-sm" title="Configure Profile, Player & Settings" onclick="openEditDeviceModal('${escapeHtml(d.mac_address)}')">⚙️ Edit</button>`;
-    const pingBtn = `<button class="btn btn-secondary btn-sm" title="Ping Device" onclick="pingSingleDevice('${escapeHtml(d.mac_address)}')">📡 Ping</button>`;
-
-    const actionMenu = `
+    // 6. Interactive Status Badge Dropdown
+    const statusDropdown = `
       <div class="dropdown-wrapper" style="position: relative; display: inline-block;">
-        <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" title="Device Actions (Quarantine, Revoke, Delete)" onclick="toggleDeviceActionMenu(event, '${escapeHtml(d.mac_address)}')">
-          Actions ▾
+        <button type="button" class="badge ${d.is_approved ? 'badge-success' : 'badge-danger'} dropdown-toggle" style="cursor: pointer; padding: 4px 10px; border-radius: 999px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; font-weight: 600; border: none;" onclick="toggleDeviceActionMenu(event, '${escapeHtml(d.mac_address)}')">
+          <span>${d.is_approved ? '● Approved' : '⚠️ Quarantined'}</span>
+          <span style="font-size: 9px; opacity: 0.8;">▾</span>
         </button>
-        <div id="action-menu-${safeMac}" class="device-dropdown-menu" style="display: none;">
+        <div id="action-menu-${safeMac}" class="device-dropdown-menu" style="display: none; left: 0; right: auto;">
           ${d.is_approved
             ? `<button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); toggleDeviceApproval('${escapeHtml(d.mac_address)}', false)"><span>⚠️</span> Quarantine</button>`
             : `<button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)"><span>✅</span> Approve Device</button>`
@@ -92,21 +104,32 @@ function renderDevicesTable() {
       </div>
     `;
 
+    // 7. Actions Column (Edit + Ping)
+    const editBtn = `<button class="btn btn-primary btn-sm" title="Configure Profile, Player & Settings" onclick="openEditDeviceModal('${escapeHtml(d.mac_address)}')">⚙️ Edit</button>`;
+    const pingBtn = `<button class="btn btn-secondary btn-sm" title="Ping Device" onclick="pingSingleDevice('${escapeHtml(d.mac_address)}')">📡 Ping</button>`;
+
     const actionBtns = `
-      <div class="device-actions-wrapper">
+      <div class="device-actions-wrapper" style="display: flex; gap: 6px;">
         ${editBtn}
         ${pingBtn}
-        ${actionMenu}
       </div>
     `;
 
     tr.innerHTML = `
-      <td><strong>${escapeHtml(d.friendly_name)}</strong></td>
-      <td><code>${escapeHtml(d.mac_address)}</code></td>
-      <td>${ipDisplay}</td>
+      <td>
+        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 3px;">${escapeHtml(d.friendly_name)}</div>
+        <div>${typeBadge}</div>
+      </td>
+      <td>
+        <div>${ipDisplay}</div>
+        <div style="font-size: 11px; font-family: monospace; color: var(--text-secondary); margin-top: 2px;">
+          ${escapeHtml(d.mac_address)}
+        </div>
+      </td>
+      <td>${versionBadge}</td>
       <td>${profileDisplay}</td>
       <td>${playerDisplay}</td>
-      <td>${statusBadge}</td>
+      <td>${statusDropdown}</td>
       <td style="white-space: nowrap;">${actionBtns}</td>
     `;
     tbody.appendChild(tr);
