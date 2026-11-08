@@ -41,7 +41,7 @@ function switchTab(tabId, updateHash = true) {
   if (tabId === "profiles") loadProfiles();
   if (tabId === "library") loadMatrix();
   if (tabId === "hardware") loadDevices();
-  if (tabId === "settings") loadApiCredentials();
+  if (tabId === "settings") { loadApiCredentials(); if (typeof checkCoreUpdates === "function") checkCoreUpdates(); }
 }
 
 // Listen to browser Back / Forward buttons
@@ -65,4 +65,5 @@ function loadInitialData() {
   if (initialTab !== "library") loadMatrix();
   if (initialTab !== "hardware") loadDevices();
   if (initialTab !== "settings") loadApiCredentials();
+  if (typeof checkCoreUpdates === "function") checkCoreUpdates();
 }

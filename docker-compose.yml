@@ -1,12 +1,13 @@
 services:
-  yoto-esp32-broker:
+  storydeck-core:
     build: .
-    container_name: yoto-esp32-broker
+    container_name: storydeck-core
     restart: unless-stopped
     ports:
       - "5055:5055"
     environment:
       - PORT=5055
+      - APP_VERSION=${APP_VERSION:-v1.1.0-rc.20261105.1}
       - ABS_BASE_URL=http://audiobookshelf:80
       - ABS_API_KEY=${ABS_API_KEY}
       - YOTO_CLIENT_ID=${YOTO_CLIENT_ID}

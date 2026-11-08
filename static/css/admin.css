@@ -759,3 +759,29 @@ tr.row-selected:hover {
   background: var(--border-subtle, rgba(255,255,255,0.1));
   margin: 4px 0;
 }
+
+.badge-version {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  font-family: monospace;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.badge-version:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.badge-version.update-available {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.5);
+  animation: pulse-update 2s infinite ease-in-out;
+}
+
+@keyframes pulse-update {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.03); }
+}

@@ -151,4 +151,6 @@ jobs:
           file: ./core/Dockerfile
           push: true
           tags: ${{ steps.docker_meta.outputs.tags }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.tag }}
           platforms: linux/amd64,linux/arm64

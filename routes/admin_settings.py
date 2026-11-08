@@ -371,3 +371,16 @@ def admin_purge_cache():
         return jsonify({"ok": True, "files_purged": purged_count, "bytes_freed": bytes_freed})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ============================================================================
+# Core Version & Release Updates (Feature 022)
+# ============================================================================
+
+@admin_settings_bp.route("/api/admin/version", methods=["GET"])
+@require_admin
+def admin_version_status():
+    """Returns installed Core version and checks for upstream GitHub releases."""
+    from core.version_service import check_github_updates
+    force = request.args.get("force", "").lower() in ("true", "1", "yes")
+    return jsonify(check_github_updates(force=force))

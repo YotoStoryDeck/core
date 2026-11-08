@@ -201,7 +201,7 @@ class AIService:
         headers = {
             "Authorization": f"Bearer {self.openrouter_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/alicia86/yoto-esp32-broker",
+            "HTTP-Referer": "https://github.com/YotoStoryDeck/core",
             "X-Title": "Yoto ESP32 Broker"
         }
         payload = {

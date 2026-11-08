@@ -55,6 +55,7 @@ def health_check():
     ai_provider = clients.ai_service.provider if clients.ai_service else "auto"
     return jsonify({
         "status": "healthy",
+        "version": clients.get_installed_version() if hasattr(clients, "get_installed_version") else __import__("core.version_service", fromlist=["get_installed_version"]).get_installed_version(),
         "connection_mode": mode,
         "features": {
             "abs_enabled": abs_ok,

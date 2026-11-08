@@ -1,6 +1,6 @@
 """
 ==============================================================================
-YOTO & AUDIOBOOKSHELF ESP32 CONTROLLER MIDDLEWARE BROKER
+STORYDECK CORE HUB - CONTROLLER MIDDLEWARE ENGINE
 ==============================================================================
 Provides ultra-lightweight REST endpoints, dynamic tag filtering, on-the-fly
 thumbnail resizing, and unified playback dispatch for the ESP32-S3 Touchscreen
@@ -9,7 +9,7 @@ controller.
 """
 
 from pathlib import Path
-from flask import Flask
+from flask import Flask, jsonify
 import database
 from core.config import SECRET_KEY, PORT, logger
 from routes import register_blueprints
@@ -31,9 +31,22 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # Register modular blueprints
 register_blueprints(app)
 
+# Log version startup banner
+from core.version_service import get_installed_version
+_version = get_installed_version()
+logger.info("============================================================")
+logger.info(" 📻 StoryDeck Core Engine - Version: %s", _version)
+logger.info("============================================================")
+
 # Start background library refresh scheduler
 from core.scheduler import start_scheduler
 start_scheduler()
+
+# Version Endpoint
+@app.route("/version", methods=["GET"])
+def version_probe():
+    from core.version_service import get_installed_version
+    return jsonify({"version": get_installed_version()})
 
 @app.after_request
 def add_cors_headers(response):
@@ -71,5 +84,5 @@ def redirect_simulator(filename=""):
 
 
 if __name__ == "__main__":
-    logger.info("Starting Yoto-ESP32 Middleware Broker on port %d...", PORT)
+    logger.info("StoryDeck Core listening on port %d...", PORT)
     app.run(host="0.0.0.0", port=PORT)
