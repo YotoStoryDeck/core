@@ -179,7 +179,7 @@ class YotoClient:
                         if isinstance(raw_groups, list):
                             for g in raw_groups:
                                 gname = (g.get("name") or "").strip()
-                                # Ignore child account name group (e.g. 'Wesley') to avoid noise
+                                # Ignore child account name group to avoid noise
                                 if not gname:
                                     continue
                                 for itm in g.get("items", []):

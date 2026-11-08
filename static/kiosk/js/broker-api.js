@@ -223,7 +223,7 @@ export const BrokerApi = {
       headers['Authorization'] = `Bearer ${state.deviceToken}`;
     }
     const payload = {
-      child: state.activeProfile?.id || 'jackson',
+      child: state.activeProfile?.id || '',
       type: card.source || card.type || 'abs',
       id: card.id || card.cardId,
       device_id: state.activeDevice?.id || state.activeProfile?.default_player_id || ''

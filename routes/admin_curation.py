@@ -133,7 +133,7 @@ def admin_batch_permissions():
     Atomically updates permissions across multiple media items and profiles.
     Body: {
       "media_ids": ["id1", "id2"],
-      "profile_actions": { "jackson": "allow", "wesley": "exclude" },
+      "profile_actions": { "profile1": "allow", "profile2": "exclude" },
       "is_highlight": null | true | false
     }
     """

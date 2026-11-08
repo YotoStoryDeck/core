@@ -219,9 +219,9 @@ export const GrownUpsScreen = {
                 <span style="font-size:12px; font-weight:600; color:#16a34a;">&#9679; HOME (Local Subnet)</span>
               </div>
               <div class="gu-info-text" style="font-family:monospace; font-size:12px; line-height:1.6; color:#554f46;">
-                <b>Local Subnet:</b> 192.168.1.xxx &bull; Wi-Fi RSSI: -52 dBm<br>
-                <b>Core Server Link:</b> ${window.location.origin} (Latency: &lt;4ms)<br>
-                <b>Hardware Model:</b> Waveshare ESP32-S3-Touch-LCD-4.3B<br>
+                <b>Host:</b> ${window.location.host}<br>
+                <b>Core Server Link:</b> ${window.location.origin}<br>
+                <b>Client Platform:</b> ${navigator.userAgentData?.platform || navigator.platform || 'Tablet'}<br>
                 <b>Resolution:</b> ${window.innerWidth} &times; ${window.innerHeight} px (${window.devicePixelRatio || 1}x DPI)
               </div>
             </div>
