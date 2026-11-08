@@ -17,11 +17,9 @@ const App = {
   init() {
     this.container = document.getElementById('app');
     this.statusBadge = document.getElementById('brokerStatus');
-    // Check for Kiosk / Fullscreen parameter (?kiosk=1, ?fullscreen=true, or ?tablet=1)
+    // Enable full edge-to-edge Kiosk mode by default (unless framed with ?frame=1)
     const params = new URLSearchParams(window.location.search);
-    if (params.get('kiosk') === '1' || params.get('kiosk') === 'true' ||
-        params.get('fullscreen') === '1' || params.get('fullscreen') === 'true' ||
-        params.get('tablet') === '1') {
+    if (params.get('frame') !== '1' && params.get('bezel') !== '1') {
       document.body.classList.add('kiosk-mode');
     }
     window.__storydeckSyncSettings = () => BrokerApi.syncDeviceSettings();

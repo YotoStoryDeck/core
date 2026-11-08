@@ -149,23 +149,6 @@ async function openEditDeviceModal(mac) {
     document.getElementById("editDevicePinInput").value = d.parent_pin || "";
   }
 
-  let devSettings = {};
-  if (d.settings_json) {
-    try {
-      devSettings = typeof d.settings_json === "string" ? JSON.parse(d.settings_json) : (d.settings_json || {});
-    } catch (e) {
-      devSettings = {};
-    }
-  }
-  const rotHour = devSettings.rotation_hour ?? devSettings.refresh_hour ?? 3;
-  const cardQty = devSettings.rotation_limit ?? devSettings.card_qty ?? 80;
-  if (document.getElementById("editDeviceRefreshHourInput")) {
-    document.getElementById("editDeviceRefreshHourInput").value = rotHour;
-  }
-  if (document.getElementById("editDeviceCardQtyInput")) {
-    document.getElementById("editDeviceCardQtyInput").value = cardQty;
-  }
-
   // Populate profiles dropdown
   const profSelect = document.getElementById("editDeviceProfileSelect");
   profSelect.innerHTML = `<option value="">-- Shared / Select at Boot --</option>`;
@@ -231,12 +214,6 @@ async function submitEditDevice() {
     return;
   }
 
-  const rotHourVal = document.getElementById("editDeviceRefreshHourInput") ? parseInt(document.getElementById("editDeviceRefreshHourInput").value, 10) : 3;
-  const cardQtyVal = document.getElementById("editDeviceCardQtyInput") ? parseInt(document.getElementById("editDeviceCardQtyInput").value, 10) : 80;
-
-  const rotHour = isNaN(rotHourVal) ? 3 : Math.max(0, Math.min(23, rotHourVal));
-  const cardQty = isNaN(cardQtyVal) ? 80 : Math.max(10, Math.min(500, cardQtyVal));
-
   try {
     const res = await fetch(`/api/admin/devices/${encodeURIComponent(currentEditDeviceMac)}`, {
       method: "PUT",
@@ -246,13 +223,7 @@ async function submitEditDevice() {
         assigned_profile_id: assignedProfile,
         locked_player_id: lockedPlayer,
         lock_player: lockedPlayer ? 1 : 0,
-        parent_pin: parentPin,
-        settings: {
-          rotation_hour: rotHour,
-          refresh_hour: rotHour,
-          rotation_limit: cardQty,
-          card_qty: cardQty
-        }
+        parent_pin: parentPin
       })
     });
     const data = await res.json();

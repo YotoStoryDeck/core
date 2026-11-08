@@ -21,7 +21,7 @@ StoryDeck Core unifies and builds upon foundational work from the open-source co
 
 ```mermaid
 flowchart LR
-    Touch["StoryDeck Touch<br/>(ESP32-S3 Appliance)"] -->|"Optimized JSON & 100x100 Art"| Core["StoryDeck Core Hub<br/>(Python Flask / SQLite)"]
+    Touch["StoryDeck Touch<br/>(ESP32-S3 Appliance)"] -->|"Optimized JSON & 100x100 Art"| Core["StoryDeck Core Hub<br/>(Flask / Modular SQLite Database)"]
     Core -->|"Scoped Catalogs & Covers"| ABS["Audiobookshelf Server"]
     Core -->|"Streams, Telemetry & Controls"| Bridge["Yoto ABS Bridge Engine<br/>(mylacc/yoto-audiobookshelf-bridge)"]
     Core -...->|"Planned MQTT Discovery<br/>(Future Feature)"| HA["Home Assistant (MQTT)"]
@@ -34,15 +34,17 @@ flowchart LR
 ## 🚀 Key Features
 
 * **Microcontroller-Optimized APIs:** Tailored endpoints serving compact JSON payloads and streaming 100×100 JPEG thumbnails formatted specifically for low-RAM microcontrollers.
-* **Integrated Web Companion / Simulator:** Built-in web kiosk accessible at `/kiosk/` and `/simulator/` for tablets, phones, and wall-mounted dashboards without external dependencies.
+* **Integrated Tablet Kiosk:** Built-in web client accessible at `/kiosk/` for tablets, phones, and wall dashboards without external dependencies.
 * **Multi-Child Profiles:** Separate libraries and preferences per child or room, with support for instant profile switching.
-* **Tag-Based Content Filtering:** Filter Audiobookshelf audiobooks and Yoto playlists by age, child tag, or collection.
+* **Curation Matrix & Physical Card Tracking:** Granular spreadsheet-style permissions per child (Allow, Exclude, Highlight, Inherit) with physical card ownership weighting to prioritize digital discovery.
+* **Atomic Whole-Series Discovery Rotation:** Deterministic daily catalog rotation that rolls whole book series together, preventing fractured sequels on bedside displays.
+* **Predetermined Series Covers:** Precomputes Book #1 cover art during catalog sync to eliminate runtime discovery overhead on microcontrollers.
+* **Device Registration & Management:** Native zero-PIN onboarding, automatic quarantine, token rotation, and remote configuration sync for StoryDeck Touch controllers.
 * **Live Telemetry & Remote Transport:** Real-time playback status, volume controls honoring native Yoto day/night limits, track progress, and chapter markers.
 * **Network Proximity & Travel Protection:** Automatically detects whether a Yoto player is on the local home network or traveling away on mobile hotspot/hotel Wi-Fi, disarming bedtime sleep timers to prevent accidental remote interruptions.
 
 ### 🔮 Planned / Future Features
 * **Home Assistant MQTT Integration:** Automatic entity discovery for bedtime screen locks, now-playing sensors, and automation switches.
-* **Device Pairing & Management:** Simple PIN pairing for StoryDeck Touch controllers without exposing raw cloud credentials to bedside devices.
 * **Remote OTA Updates:** Distribute and manage firmware updates for StoryDeck Touch directly from the Core Web Admin.
 
 ---
@@ -102,8 +104,7 @@ python app.py
 
 Once running, StoryDeck Core will be available at `http://localhost:5055`:
 * **Admin Dashboard:** `http://localhost:5055/admin`
-* **Touch Kiosk / Tablet Web Companion:** `http://localhost:5055/kiosk/` *(Note: Running the Kiosk/Simulator companion locally requires both StoryDeck Core and the static frontend assets from [StoryDeck Touch](https://github.com/YotoStoryDeck/touch). In official Core Docker releases, these assets are pre-packaged.)*
-* **Desktop Developer Simulator:** `http://localhost:5055/simulator/`
+* **Tablet Kiosk:** `http://localhost:5055/kiosk/` *(Fully self-contained in `static/kiosk/` — zero external asset dependencies; runs edge-to-edge on iPads, Android tablets, Fire OS, and desktop browsers).*
 
 ---
 

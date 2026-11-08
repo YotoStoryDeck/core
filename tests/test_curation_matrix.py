@@ -698,5 +698,58 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
         self.assertIn("seq_series_b1", item_ids)
         self.assertIn("seq_series_b2", item_ids)
 
+    def test_dual_profile_catalog_limits_touch_vs_kiosk(self):
+        """Verifies dual profile limits: Touch device cap vs Kiosk unlimited / custom cap."""
+        prof_key = "dual_test_kid"
+        # Seed 5 standalone cards
+        test_cards = []
+        for i in range(1, 6):
+            cid = f"dual_card_{i}"
+            test_cards.append({
+                "id": cid,
+                "type": "yoto",
+                "title": f"Dual Test Story {i}",
+                "author": "Test Author",
+                "cover_url": f"https://example.com/{cid}.jpg",
+                "raw_data": {}
+            })
+        database.upsert_media_items(test_cards)
+
+        # Upsert profile with touch limit 2 and kiosk limit 0 (unlimited)
+        database.upsert_profile(prof_key, {
+            "display_name": "Dual Limit Kid",
+            "catalog_rotation_limit": 2,
+            "kiosk_catalog_limit": 0,
+            "yoto": {
+                "inherit_shared": False,
+                "allowed_card_ids": [c["id"] for c in test_cards]
+            }
+        })
+
+        # Verify Touch client receives exactly 2 cards
+        touch_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="touch")
+        self.assertEqual(len(touch_items), 2)
+
+        # Verify Kiosk client receives ALL 5 cards
+        kiosk_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
+        self.assertEqual(len(kiosk_items), 5)
+
+        # Verify the top 2 items on the Kiosk match the Touch items in exact order (The Superset Principle)
+        self.assertEqual(touch_items[0]["id"], kiosk_items[0]["id"])
+        self.assertEqual(touch_items[1]["id"], kiosk_items[1]["id"])
+
+        # Update Kiosk limit to a custom positive number (3)
+        database.upsert_profile(prof_key, {
+            "display_name": "Dual Limit Kid",
+            "catalog_rotation_limit": 2,
+            "kiosk_catalog_limit": 3,
+            "yoto": {
+                "inherit_shared": False,
+                "allowed_card_ids": [c["id"] for c in test_cards]
+            }
+        })
+        kiosk_items_capped = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
+        self.assertEqual(len(kiosk_items_capped), 3)
+
 if __name__ == "__main__":
     unittest.main()

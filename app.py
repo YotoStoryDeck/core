@@ -42,33 +42,30 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-# Serve Wall Tablet Kiosk & Web Client
+# Serve Tablet Kiosk & Web Client
 kiosk_dir = base_dir / "static" / "kiosk"
-
-@app.route("/simulator")
-def redirect_simulator():
-    from flask import redirect, request
-    qs = request.query_string.decode("utf-8")
-    target = "/simulator/" + (f"?{qs}" if qs else "")
-    return redirect(target, code=301)
 
 @app.route("/kiosk")
 @app.route("/kiosk/")
-def redirect_kiosk():
-    from flask import redirect, request
-    qs = request.query_string.decode("utf-8")
-    if qs:
-        target = f"/simulator/?kiosk=1&{qs}"
-    else:
-        target = "/simulator/?kiosk=1"
-    return redirect(target, code=302)
+def serve_kiosk_root():
+    from flask import send_from_directory
+    return send_from_directory(str(kiosk_dir), "index.html")
 
-@app.route("/simulator/")
-@app.route("/simulator/<path:filename>")
 @app.route("/kiosk/<path:filename>")
-def serve_simulator(filename="index.html"):
+def serve_kiosk_file(filename):
     from flask import send_from_directory
     return send_from_directory(str(kiosk_dir), filename)
+
+@app.route("/simulator")
+@app.route("/simulator/")
+@app.route("/simulator/<path:filename>")
+def redirect_simulator(filename=""):
+    from flask import redirect, request
+    qs = request.query_string.decode("utf-8")
+    target = f"/kiosk/{filename}" if filename else "/kiosk/"
+    if qs:
+        target += f"?{qs}"
+    return redirect(target, code=301)
 
 
 

@@ -8,7 +8,9 @@ from flask import Blueprint, request, jsonify
 import database
 import clients
 from core.config import YOTO_BRIDGE_URL, logger
-from core.auth import require_device_jwt, create_device_jwt, decode_and_verify_device_jwt
+from core.auth import (
+    require_device_jwt, create_device_jwt, decode_and_verify_device_jwt, get_current_device
+)
 
 # Persistent HTTP session with keep-alive pool for low-latency Bridge/Yoto relay
 _http_session = requests.Session()
@@ -140,6 +142,24 @@ def get_profiles():
             "player_ids": pdata.get("player_ids", [])
         })
     return jsonify(profiles)
+
+def _resolve_client_type() -> str:
+    """Detects whether client is a Tablet Kiosk / Web Companion or an ESP32 hardware device."""
+    client_arg = (request.args.get("client") or request.args.get("device_type") or "").strip().lower()
+    if client_arg == "kiosk":
+        return "kiosk"
+    try:
+        dev_info = get_current_device()
+        if dev_info and dev_info.get("device"):
+            dev = dev_info["device"]
+            fw = (dev.get("firmware_version") or "").lower()
+            name = (dev.get("friendly_name") or "").lower()
+            if "-web" in fw or "kiosk" in name or "browser" in name:
+                return "kiosk"
+    except Exception:
+        pass
+    return "touch"
+
 @esp32_bp.route("/api/kids/<child_name>/abs", methods=["GET"])
 @require_device_jwt
 def get_child_abs(child_name: str):
@@ -148,8 +168,9 @@ def get_child_abs(child_name: str):
     Scoped by child account token, dedicated library ID, and/or tag filter.
     Microcontroller-optimized JSON array served with ultra-low latency from pre-indexed SQLite cache.
     """
+    client_type = _resolve_client_type()
     try:
-        books = database.get_catalog_items_for_profile(child_name.lower(), "abs")
+        books = database.get_catalog_items_for_profile(child_name.lower(), "abs", client_type=client_type)
         if books or not clients.abs_client:
             return jsonify(books)
     except Exception as e:
@@ -167,8 +188,9 @@ def get_child_yoto(child_name: str):
     and profile-specific curation rules.
     Microcontroller-optimized JSON array served with ultra-low latency from pre-indexed SQLite cache.
     """
+    client_type = _resolve_client_type()
     try:
-        playlists = database.get_catalog_items_for_profile(child_name.lower(), "yoto")
+        playlists = database.get_catalog_items_for_profile(child_name.lower(), "yoto", client_type=client_type)
         if playlists or not clients.yoto_client:
             return jsonify(playlists)
     except Exception as e:
@@ -190,7 +212,7 @@ def get_child_yoto(child_name: str):
 def get_device_media_tracks(media_id: str):
     """
     Returns chapter and track breakdown for a media item (ABS audiobook or Yoto card).
-    Consumed by bedside controllers and the touchscreen simulator for track selection & detail views.
+    Consumed by bedside controllers and tablet kiosks for track selection & detail views.
     """
     from routes.admin_curation import get_media_tracks_data
     try:
@@ -498,7 +520,7 @@ def update_device_settings():
     dev = database.get_esp32_device(device_id)
     if not dev:
         ip_addr = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or ""
-        database.register_esp32_device(device_id, data.get("friendly_name", "StoryDeck Kiosk"), ip_addr, "web-touch")
+        database.register_esp32_device(device_id, data.get("friendly_name", "StoryDeck Kiosk"), ip_addr, "kiosk-web")
         dev = database.get_esp32_device(device_id)
 
     updates = {}

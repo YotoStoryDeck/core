@@ -58,8 +58,12 @@ function renderProfileCards() {
         ${additionalPlayers ? `<p class="text-secondary"><strong>Additional / Communal:</strong> ${escapeHtml(additionalPlayers)}</p>` : ""}
         <p class="text-secondary"><strong>Custom Yoto Cards:</strong> ${allowedCount} allowed, ${excludedCount} excluded</p>
       </div>
-      <div style="margin-top: auto; display: flex; gap: 8px;">
+      <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-subtle);">
+        <p class="text-secondary" style="font-size: 11px; margin-bottom: 8px;"><strong>Rotation:</strong> ${p.catalog_rotation_limit || 80} cards (rolls at ${p.catalog_rotation_hour ?? 3}:00${p.hide_physical ? ', physical hidden' : ''})</p>
+      </div>
+      <div style="margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px;">
         <button class="btn btn-secondary btn-sm" onclick="editProfile('${escapeHtml(p.id)}')">Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="forceProfileRotationRefresh('${escapeHtml(p.id)}')" title="Force immediate catalog discovery rotation re-roll for ${escapeHtml(p.display_name)}">🔄 Refresh Rotation</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProfile('${escapeHtml(p.id)}')">Delete</button>
       </div>
     `;
@@ -345,10 +349,12 @@ async function openProfileModal(existingId = null) {
   editIdInput.value = existingId || "";
 
   // Curation Rotation & Physical settings
-  const rotLimitInput = document.getElementById("profileRotationLimit");
+  const touchLimitInput = document.getElementById("profileTouchRotationLimit") || document.getElementById("profileRotationLimit");
+  const kioskLimitInput = document.getElementById("profileKioskRotationLimit");
   const rotHourInput = document.getElementById("profileRotationHour");
   const hidePhysCheck = document.getElementById("profileHidePhysical");
-  if (rotLimitInput) rotLimitInput.value = (prof && prof.catalog_rotation_limit) ? prof.catalog_rotation_limit : 80;
+  if (touchLimitInput) touchLimitInput.value = (prof && prof.catalog_rotation_limit) ? prof.catalog_rotation_limit : 60;
+  if (kioskLimitInput) kioskLimitInput.value = (prof && prof.kiosk_catalog_limit !== undefined) ? prof.kiosk_catalog_limit : 0;
   if (rotHourInput) rotHourInput.value = (prof && prof.catalog_rotation_hour !== undefined) ? prof.catalog_rotation_hour : 3;
   if (hidePhysCheck) hidePhysCheck.checked = !!(prof && prof.hide_physical);
   nameInput.value = prof ? prof.display_name : "";
@@ -515,7 +521,10 @@ async function saveProfileForm(e) {
   const avatarColorHidden = document.getElementById("profileAvatarColorHidden").value.trim();
   const avatarInitialInput = document.getElementById("profileAvatarInitialInput").value.trim().toUpperCase();
 
-  const rotLimit = parseInt(document.getElementById("profileRotationLimit").value, 10) || 80;
+  const touchLimitEl = document.getElementById("profileTouchRotationLimit") || document.getElementById("profileRotationLimit");
+  const kioskLimitEl = document.getElementById("profileKioskRotationLimit");
+  const rotLimit = touchLimitEl ? (parseInt(touchLimitEl.value, 10) || 60) : 60;
+  const kioskLimit = kioskLimitEl ? (parseInt(kioskLimitEl.value, 10) >= 0 ? parseInt(kioskLimitEl.value, 10) : 0) : 0;
   const rotHour = parseInt(document.getElementById("profileRotationHour").value, 10) || 3;
   const hidePhys = document.getElementById("profileHidePhysical").checked;
 
@@ -532,6 +541,7 @@ async function saveProfileForm(e) {
     avatar_initial: avatarInitialInput,
     hide_physical: hidePhys,
     catalog_rotation_limit: rotLimit,
+    kiosk_catalog_limit: kioskLimit,
     catalog_rotation_hour: rotHour,
     yoto: prof ? prof.yoto : { inherit_shared: true, allowed_card_ids: [], excluded_card_ids: [], match_titles: [] }
   };
@@ -702,14 +712,16 @@ async function confirmImportDiscovery() {
   }
 }
 
-async function forceProfileRotationRefresh() {
-  const editId = document.getElementById("profileEditId").value.trim();
+async function forceProfileRotationRefresh(profileId) {
+  const editInput = document.getElementById("profileEditId");
+  const editId = (profileId || (editInput ? editInput.value : "")).trim();
+  const profileName = (editId && currentProfiles[editId]) ? currentProfiles[editId].display_name : editId;
   try {
     const url = editId ? `/api/admin/catalog/refresh/${encodeURIComponent(editId)}` : "/api/admin/catalog/refresh";
     const res = await fetch(url, { method: "POST" });
     const data = await res.json();
     if (data.ok) {
-      showToast(`Refreshed catalog rotation! (${data.count} items processed)`, "success");
+      showToast(`Refreshed catalog rotation for ${profileName || 'profile'}! (${data.count} items processed)`, "success");
     } else {
       showToast("Refresh failed: " + (data.error || "Unknown"), "error");
     }

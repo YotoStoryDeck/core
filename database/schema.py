@@ -46,7 +46,8 @@ def init_db():
                 avatar_initial TEXT DEFAULT '',
                 inherit_shared BOOLEAN DEFAULT 1,
                 hide_physical BOOLEAN DEFAULT 0,
-                catalog_rotation_limit INTEGER DEFAULT 80,
+                catalog_rotation_limit INTEGER DEFAULT 60,
+                kiosk_catalog_limit INTEGER DEFAULT 0,
                 catalog_rotation_hour INTEGER DEFAULT 3,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -282,6 +283,18 @@ def run_schema_migrations(conn: sqlite3.Connection):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_playback_hist_prof ON media_playback_history(profile_id);")
             conn.execute("PRAGMA user_version = 8;")
         logger.info("Migrated SQLite schema to version 8 (added media_playback_history table).")
+
+    # Version 8 -> 9: Add kiosk_catalog_limit to profiles and adjust touch default to 60
+    if version < 9:
+        with conn:
+            cur.execute("PRAGMA table_info(profiles);")
+            p_columns = [col[1] for col in cur.fetchall()]
+            if "kiosk_catalog_limit" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN kiosk_catalog_limit INTEGER DEFAULT 0;")
+            # Migrate old 80 default to 60 for smoother ESP32 performance
+            conn.execute("UPDATE profiles SET catalog_rotation_limit = 60 WHERE catalog_rotation_limit = 80;")
+            conn.execute("PRAGMA user_version = 9;")
+        logger.info("Migrated SQLite schema to version 9 (added kiosk_catalog_limit, adjusted touch default to 60).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================

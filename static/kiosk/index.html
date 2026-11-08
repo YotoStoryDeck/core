@@ -21,18 +21,18 @@
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
   
   <!-- Modular Design System -->
-  <link rel="stylesheet" href="/simulator/css/main.css">
-  <link rel="stylesheet" href="/simulator/css/profile.css">
-  <link rel="stylesheet" href="/simulator/css/catalog.css">
-  <link rel="stylesheet" href="/simulator/css/player.css">
-  <link rel="stylesheet" href="/simulator/css/grownups.css">
-  <link rel="stylesheet" href="/simulator/css/pin.css">
-  <link rel="stylesheet" href="/simulator/css/screensaver.css">
+  <link rel="stylesheet" href="/kiosk/css/main.css">
+  <link rel="stylesheet" href="/kiosk/css/profile.css">
+  <link rel="stylesheet" href="/kiosk/css/catalog.css">
+  <link rel="stylesheet" href="/kiosk/css/player.css">
+  <link rel="stylesheet" href="/kiosk/css/grownups.css">
+  <link rel="stylesheet" href="/kiosk/css/pin.css">
+  <link rel="stylesheet" href="/kiosk/css/screensaver.css">
   <script>
     (function() {
       var search = window.location.search;
       var p = new URLSearchParams(search);
-      var isKiosk = p.get('kiosk') === '1' || p.get('kiosk') === 'true' || p.get('fullscreen') === '1' || p.get('tablet') === '1';
+      var isKiosk = p.get('frame') !== '1' && p.get('bezel') !== '1';
       
       // Generic resolution presets
       var PRESETS = {
@@ -106,15 +106,15 @@
 </head>
 <body>
   <div class="note">
-    <span>Bedside ESP32 Controller Simulator (800×480)</span>
+    <span>StoryDeck Tablet Kiosk</span>
     <span class="broker-badge connecting" id="brokerStatus">Connecting to Broker...</span>
   </div>
 
-  <!-- Hardware Frame: 800x480 Waveshare ESP32-S3 Touchscreen Simulator -->
+  <!-- Tablet Kiosk Application Container -->
   <div class="frame" id="app"></div>
 
   <!-- Modular ES6 Application -->
-  <script type="module" src="/simulator/js/app.js"></script>
+  <script type="module" src="/kiosk/js/app.js"></script>
 
 </body>
 </html>

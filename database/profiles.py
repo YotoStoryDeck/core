@@ -41,7 +41,8 @@ def get_all_profiles() -> Dict[str, Any]:
                 "avatar_color": r["avatar_color"] if "avatar_color" in r.keys() else "",
                 "avatar_initial": r["avatar_initial"] if "avatar_initial" in r.keys() else "",
                 "hide_physical": bool(r["hide_physical"]) if "hide_physical" in r.keys() else False,
-                "catalog_rotation_limit": int(r["catalog_rotation_limit"]) if "catalog_rotation_limit" in r.keys() and r["catalog_rotation_limit"] is not None else 80,
+                "catalog_rotation_limit": int(r["catalog_rotation_limit"]) if "catalog_rotation_limit" in r.keys() and r["catalog_rotation_limit"] is not None else 60,
+                "kiosk_catalog_limit": int(r["kiosk_catalog_limit"]) if "kiosk_catalog_limit" in r.keys() and r["kiosk_catalog_limit"] is not None else 0,
                 "catalog_rotation_hour": int(r["catalog_rotation_hour"]) if "catalog_rotation_hour" in r.keys() and r["catalog_rotation_hour"] is not None else 3,
                 "yoto": {
                     "inherit_shared": bool(r["inherit_shared"]),
@@ -73,13 +74,14 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
             avatar_color = data.get("avatar_color", "")
             avatar_initial = data.get("avatar_initial", "")
             hide_phys = 1 if data.get("hide_physical", False) else 0
-            rot_lim = int(data.get("catalog_rotation_limit", 80) or 80)
+            rot_lim = int(data.get("catalog_rotation_limit", 60) if data.get("catalog_rotation_limit") is not None else 60)
+            kiosk_lim = int(data.get("kiosk_catalog_limit", 0) if data.get("kiosk_catalog_limit") is not None else 0)
             rot_hr = int(data.get("catalog_rotation_hour", 3) if data.get("catalog_rotation_hour") is not None else 3)
             yoto = data.get("yoto", {})
             inherit = 1 if yoto.get("inherit_shared", True) else 0
             conn.execute("""
-            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, hide_physical, catalog_rotation_limit, catalog_rotation_hour, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, hide_physical, catalog_rotation_limit, kiosk_catalog_limit, catalog_rotation_hour, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 display_name = excluded.display_name,
                 abs_username = excluded.abs_username,
@@ -94,9 +96,10 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
                 inherit_shared = excluded.inherit_shared,
                 hide_physical = excluded.hide_physical,
                 catalog_rotation_limit = excluded.catalog_rotation_limit,
+                kiosk_catalog_limit = excluded.kiosk_catalog_limit,
                 catalog_rotation_hour = excluded.catalog_rotation_hour,
                 updated_at = CURRENT_TIMESTAMP;
-            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit, hide_phys, rot_lim, rot_hr))
+            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit, hide_phys, rot_lim, kiosk_lim, rot_hr))
             # Reset & rebuild permissions
             conn.execute("DELETE FROM profile_media_permissions WHERE profile_id = ?;", (prof_id,))
             for card_id in yoto.get("allowed_card_ids", []):

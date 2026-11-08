@@ -54,29 +54,6 @@
       </div>
     </div>
 
-    <!-- Device Rotation & Catalog Settings Section -->
-    <div style="border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.1)); padding-top: 14px; margin-top: 14px;">
-      <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-        <span>🔄</span> Device Curation & Rotation Preferences
-      </h4>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px;">
-        <div>
-          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
-            Daily Rotation Hour (0–23):
-          </label>
-          <input type="number" id="editDeviceRefreshHourInput" class="form-control" min="0" max="23" placeholder="3">
-          <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px;">Hour (0=Midnight, 3=3 AM) to re-roll catalog rotation.</small>
-        </div>
-        <div>
-          <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">
-            Card Limit / Qty:
-          </label>
-          <input type="number" id="editDeviceCardQtyInput" class="form-control" min="10" max="500" placeholder="80">
-          <small style="display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px;">Max cards in discovery pool (default: 80).</small>
-        </div>
-      </div>
-    </div>
-
     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
       <button type="button" class="btn btn-secondary" onclick="closeEditDeviceModal()">Cancel</button>
       <button type="button" class="btn btn-primary" onclick="submitEditDevice()">💾 Save Changes</button>

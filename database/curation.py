@@ -29,14 +29,14 @@ def sanitize_display_text(text: str) -> str:
     decomposed = unicodedata.normalize('NFKD', text)
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
-def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> List[Dict[str, Any]]:
+def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs", client_type: str = "touch") -> List[Dict[str, Any]]:
     """
     Retrieves filtered media catalog items for a child profile directly from SQLite cache.
     Implements multi-tiered rotation curation:
     1. 'Last Played' Tier: Sorted directly to the top for instant one-touch resumption.
     2. 'Sticky Favorites' Tier: Parent-pinned highlights (is_highlight = 1).
     3. 'Discovery Rotation Pool': Deterministically rotated daily mix with Book #1 series prioritization
-       and physical card down-weighting, capped at the configurable profile rotation limit (default 80).
+       and physical card down-weighting, capped at the configurable profile rotation limit (default 60 on Touch, 0/unlimited on Kiosk).
     Returns microcontroller-optimized array matching the client response schema.
     """
     from datetime import datetime, timezone
@@ -47,7 +47,14 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
     profiles = get_all_profiles()
     pcfg = profiles.get(profile_key.lower(), {})
     hide_physical = bool(pcfg.get("hide_physical", False))
-    rotation_limit = int(pcfg.get("catalog_rotation_limit", 80) or 80)
+    if client_type == "kiosk":
+        # 0 denotes unlimited; positive integer caps at that limit
+        rotation_limit = int(pcfg.get("kiosk_catalog_limit", 0) if pcfg.get("kiosk_catalog_limit") is not None else 0)
+    else:
+        # Bedside Touch controller: default 60 (for low PSRAM pressure and fast boot)
+        rotation_limit = int(pcfg.get("catalog_rotation_limit", 60) or 60)
+        if rotation_limit <= 0:
+            rotation_limit = 60
 
     # Sync live playback history
     playback_history = get_playback_history(profile_key)
@@ -76,8 +83,8 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
                 logger.debug("Notice updating live ABS progress for %s: %s", profile_key, pe)
     except Exception as ie:
         logger.debug("Notice initializing clients in catalog: %s", ie)
-    if rotation_limit <= 0:
-        rotation_limit = 80
+    if client_type != "kiosk" and rotation_limit <= 0:
+        rotation_limit = 60
 
     def _parse_seq(val, title):
         seq = None
@@ -290,7 +297,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs") -> 
     cluster_list.sort(key=lambda x: x[0])
 
     for rank, c_key, c_books in cluster_list:
-        if len(final_results) >= rotation_limit:
+        if rotation_limit > 0 and len(final_results) >= rotation_limit:
             break
         for b in c_books:
             _pull_item_and_whole_series(b)

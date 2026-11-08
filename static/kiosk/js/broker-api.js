@@ -152,10 +152,10 @@ export const BrokerApi = {
   },
   async fetchLiveCatalog(profileId) {
     const headers = state.deviceToken ? { 'Authorization': `Bearer ${state.deviceToken}` } : {};
-    const absPromise = fetch(`${CONFIG.BROKER_BASE}/api/kids/${profileId}/abs`, { headers })
+    const absPromise = fetch(`${CONFIG.BROKER_BASE}/api/kids/${profileId}/abs?client=kiosk`, { headers })
       .then(r => r.ok ? r.json() : [])
       .catch(() => []);
-    const yotoPromise = fetch(`${CONFIG.BROKER_BASE}/api/kids/${profileId}/yoto`, { headers })
+    const yotoPromise = fetch(`${CONFIG.BROKER_BASE}/api/kids/${profileId}/yoto?client=kiosk`, { headers })
       .then(r => r.ok ? r.json() : [])
       .catch(() => []);
     const [absItems, yotoItems] = await Promise.all([absPromise, yotoPromise]);
