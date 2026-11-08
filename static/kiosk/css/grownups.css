@@ -219,30 +219,17 @@
   transition: color .15s, transform .1s;
   position: relative;
   user-select: none;
-  touch-action: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
 .nav-gear-btn:hover {
   color: #23303a;
 }
 
-.nav-gear-btn.pressing {
+.nav-gear-btn:active {
   color: var(--red, #e5352b);
-  transform: scale(0.92);
-}
-
-.nav-gear-btn.pressing::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border: 2px solid var(--red, #e5352b);
-  border-radius: 50%;
-  animation: gear-hold 2.5s linear forwards;
-}
-
-@keyframes gear-hold {
-  0% { transform: scale(1); opacity: 0.3; }
-  50% { opacity: 0.8; }
-  100% { transform: scale(1.15); opacity: 1; }
+  transform: scale(0.90);
 }
 

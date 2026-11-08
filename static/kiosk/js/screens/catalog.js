@@ -69,8 +69,8 @@ export const CatalogScreen = {
           <button class="tab-btn ${state.activeTab === 'series' ? 'active' : ''}" data-tab="series">Series</button>
           <button class="tab-btn ${state.activeTab === 'recent' ? 'active' : ''}" data-tab="recent">Recently Played</button>
           
-          <!-- Grown-Ups Screen Gear (Hold 2.5s) -->
-          <button class="nav-gear-btn" data-act="gear-button" title="Hold for 2.5s to open Grown-ups settings">&#9881;</button>
+          <!-- Grown-Ups Screen Gear -->
+          <button class="nav-gear-btn" data-act="gear-button" title="Grown-ups settings">&#9881;</button>
         </div>
       </div>
     `;

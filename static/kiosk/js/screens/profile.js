@@ -4,7 +4,7 @@ import { Utils } from '../config.js';
 /**
  * Screen 1: Profile Selection Screen Component
  * Renders the avatar grid with scrolling support, friendly player names,
- * and a top-right Grown-Ups gear button (Hold 2.5s -> PIN -> Grown-Ups Settings).
+ * and a top-right Grown-Ups gear button (Tap -> PIN -> Grown-Ups Settings).
  */
 export const ProfileScreen = {
   getTimeGreeting() {
@@ -29,8 +29,8 @@ export const ProfileScreen = {
 
     return `
       <div class="profile-screen">
-        <!-- Grown-Ups Screen Gear (Hold 2.5s) -->
-        <button class="nav-gear-btn" data-act="gear-button" title="Hold for 2.5s to open Grown-ups settings" style="position:absolute; top:14px; right:18px; z-index:20;">&#9881;</button>
+        <!-- Grown-Ups Screen Gear -->
+        <button class="nav-gear-btn" data-act="gear-button" title="Grown-ups settings" style="position:absolute; top:14px; right:18px; z-index:20;">&#9881;</button>
         <div class="profile-header">
           <div class="profile-title">${greeting}</div>
           <div class="profile-subtitle">Tap your profile avatar to explore your audiobooks</div>

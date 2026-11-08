@@ -23,8 +23,9 @@ const App = {
       document.body.classList.add('kiosk-mode');
     }
     window.__storydeckSyncSettings = () => BrokerApi.syncDeviceSettings();
+    // Suppress native browser context / long-press callout menus on touch tablets
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
     this.bindEvents();
-    this.bindGearHoldTimer();
     this.startSleepTimerTicker();
     this.startInactivityTracker();
     this.bootstrap();
@@ -712,44 +713,25 @@ Are you sure you want to start audio playback on this remote player?`);
           BrokerApi.sendPlayerControl('volume', { volume: newVol });
           return;
         }
+        if (act === 'gear-button') {
+          e.preventDefault();
+          e.stopPropagation();
+          state.previousScreen = state.screen;
+          state.currentEnteredPin = '';
+          state.isPinError = false;
+          if (!state.parentPin) {
+            state.pinMode = 'setup';
+          } else {
+            state.pinMode = 'unlock';
+          }
+          state.setScreen('pin');
+          this.render();
+          return;
+        }
       }
     });
   },
-  bindGearHoldTimer() {
-    let holdTimeout = null;
-    const startHold = (e) => {
-      const gearBtn = e.target.closest('[data-act="gear-button"]');
-      if (!gearBtn) return;
-      gearBtn.classList.add('pressing');
-      if (holdTimeout) clearTimeout(holdTimeout);
-      holdTimeout = setTimeout(() => {
-        gearBtn.classList.remove('pressing');
-        holdTimeout = null;
-        state.previousScreen = state.screen;
-        state.currentEnteredPin = '';
-        state.isPinError = false;
-        if (!state.parentPin) {
-          state.pinMode = 'setup';
-        } else {
-          state.pinMode = 'unlock';
-        }
-        state.setScreen('pin');
-        this.render();
-      }, 2500);
-    };
-    const cancelHold = (e) => {
-      const gearBtn = document.querySelector('.nav-gear-btn');
-      if (gearBtn) gearBtn.classList.remove('pressing');
-      if (holdTimeout) {
-        clearTimeout(holdTimeout);
-        holdTimeout = null;
-      }
-    };
-    document.addEventListener('pointerdown', startHold);
-    document.addEventListener('pointerup', cancelHold);
-    document.addEventListener('pointercancel', cancelHold);
-    document.addEventListener('pointerleave', cancelHold);
-  },
+
   bindGrownUpsEvents() {
     // Parent volume ceiling slider removed - volume limits are dynamically queried per-device from Yoto
     const bedtimeInput = document.getElementById('guBedtimeInput');
