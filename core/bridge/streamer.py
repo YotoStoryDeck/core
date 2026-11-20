@@ -102,5 +102,5 @@ class AudioStreamer:
                     try:
                         proc.kill()
                         proc.wait()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("ffmpeg cleanup kill notice on %s: %s", t.url, e)

@@ -97,8 +97,8 @@ def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
                     pdata["avatar_url"] = norm
                     database.upsert_profile(pid, pdata)
                     raw_av = norm
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed materializing base64 avatar for profile %s: %s", pid, e)
         elif raw_av.startswith("http://") or raw_av.startswith("https://"):
             try:
                 res = requests.get(raw_av, timeout=6)
@@ -108,8 +108,8 @@ def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
                         pdata["avatar_url"] = norm
                         database.upsert_profile(pid, pdata)
                         raw_av = norm
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed downloading avatar for profile %s from %s: %s", pid, raw_av, e)
 
     if avatar_path.exists():
         mtime = int(avatar_path.stat().st_mtime)
@@ -157,8 +157,8 @@ def _resolve_client_type() -> str:
             name = (dev.get("friendly_name") or "").lower()
             if "-web" in fw or "kiosk" in name or "browser" in name:
                 return "kiosk"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Client type resolution fallback for device: %s", e)
     return "touch"
 
 @esp32_bp.route("/api/kids/<child_name>/abs", methods=["GET"])

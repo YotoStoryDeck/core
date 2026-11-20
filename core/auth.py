@@ -116,8 +116,10 @@ def is_request_from_trusted_proxy() -> bool:
         for net in TRUSTED_PROXIES:
             if remote_ip in net:
                 return True
-    except Exception:
-        pass
+    except ValueError as e:
+        logger.debug("Invalid client IP '%s' during proxy validation: %s", remote_addr, e)
+    except Exception as e:
+        logger.warning("Unexpected error during trusted proxy check for '%s': %s", remote_addr, e)
     return False
 
 

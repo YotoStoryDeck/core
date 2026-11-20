@@ -584,172 +584,233 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
             sess["username"] = "admin"
             sess["role"] = "admin"
 
-        # 1. Single toggle
         test_id = "test_card_phys_1"
-        database.upsert_media_items([{
-            "id": test_id,
-            "type": "yoto",
-            "title": "Physical Test Card 1"
-        }])
-
-        res = self.client.post(f"/api/admin/catalog/physical/{test_id}", json={"has_physical": True})
-        self.assertEqual(res.status_code, 200)
-        self.assertTrue(res.get_json().get("has_physical"))
-
-        # Verify in matrix
-        matrix = database.get_catalog_matrix()
-        match = next((it for it in matrix["items"] if it["id"] == test_id), None)
-        self.assertIsNotNone(match)
-        self.assertTrue(match.get("has_physical"))
-
-        # 2. Batch toggle
         test_id2 = "test_card_phys_2"
-        database.upsert_media_items([{
-            "id": test_id2,
-            "type": "yoto",
-            "title": "Physical Test Card 2"
-        }])
+        try:
+            # 1. Single toggle
+            database.upsert_media_items([{
+                "id": test_id,
+                "type": "yoto",
+                "title": "Physical Test Card 1"
+            }])
 
-        res_batch = self.client.post("/api/admin/curation/batch-physical", json={
-            "media_ids": [test_id, test_id2],
-            "has_physical": False
-        })
-        self.assertEqual(res_batch.status_code, 200)
-        self.assertEqual(res_batch.get_json().get("updated_count"), 2)
+            res = self.client.post(f"/api/admin/catalog/physical/{test_id}", json={"has_physical": True})
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(res.get_json().get("has_physical"))
 
-        matrix2 = database.get_catalog_matrix()
-        m1 = next(it for it in matrix2["items"] if it["id"] == test_id)
-        m2 = next(it for it in matrix2["items"] if it["id"] == test_id2)
-        self.assertFalse(m1.get("has_physical"))
-        self.assertFalse(m2.get("has_physical"))
+            # Verify in matrix
+            matrix = database.get_catalog_matrix()
+            match = next((it for it in matrix["items"] if it["id"] == test_id), None)
+            self.assertIsNotNone(match)
+            self.assertTrue(match.get("has_physical"))
+
+            # 2. Batch toggle
+            database.upsert_media_items([{
+                "id": test_id2,
+                "type": "yoto",
+                "title": "Physical Test Card 2"
+            }])
+
+            res_batch = self.client.post("/api/admin/curation/batch-physical", json={
+                "media_ids": [test_id, test_id2],
+                "has_physical": False
+            })
+            self.assertEqual(res_batch.status_code, 200)
+            self.assertEqual(res_batch.get_json().get("updated_count"), 2)
+
+            matrix2 = database.get_catalog_matrix()
+            m1 = next(it for it in matrix2["items"] if it["id"] == test_id)
+            m2 = next(it for it in matrix2["items"] if it["id"] == test_id2)
+            self.assertFalse(m1.get("has_physical"))
+            self.assertFalse(m2.get("has_physical"))
+        finally:
+            conn = database.get_db_connection()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM media_items WHERE id IN (?, ?);", (test_id, test_id2))
+            finally:
+                conn.close()
 
     def test_16_catalog_rotation_and_series_sequencing(self):
         """Verifies Book #1 series prioritization, last-played top sorting, and hide_physical filtering."""
         # Create an isolated test profile with inherit_shared = False
         prof_key = "rot_test_kid"
-        database.upsert_profile(prof_key, {
-            "display_name": "Rotation Kid",
-            "catalog_rotation_limit": 2,
-            "hide_physical": False,
-            "yoto": {"inherit_shared": False}
-        })
+        try:
+            database.upsert_profile(prof_key, {
+                "display_name": "Rotation Kid",
+                "catalog_rotation_limit": 2,
+                "hide_physical": False,
+                "yoto": {"inherit_shared": False}
+            })
 
-        # Create test series items
-        s_book1 = {
-            "id": "seq_series_b1",
-            "type": "yoto",
-            "title": "Adventures in Magic #1: The Beginning",
-            "series": "Adventures in Magic",
-            "series_order": "1",
-            "has_physical": False
-        }
-        s_book2 = {
-            "id": "seq_series_b2",
-            "type": "yoto",
-            "title": "Adventures in Magic #2: The Dark Forest",
-            "series": "Adventures in Magic",
-            "series_order": "2",
-            "has_physical": False
-        }
-        recent_card = {
-            "id": "seq_recent_card",
-            "type": "yoto",
-            "title": "Yesterday Bedtime Story",
-            "raw_metadata": {"lastPlayedAt": "2026-11-06T10:00:00Z"},
-            "has_physical": False
-        }
-        phys_card = {
-            "id": "seq_phys_card",
-            "type": "yoto",
-            "title": "Bedroom Binder Plastic Card",
-            "has_physical": True
-        }
-
-        database.upsert_media_items([s_book1, s_book2, recent_card, phys_card])
-        database.set_item_physical("seq_phys_card", True)
-
-        # Allow them explicitly for the isolated test profile
-        database.batch_update_profile_media_permissions(
-            media_ids=["seq_series_b1", "seq_series_b2", "seq_recent_card", "seq_phys_card"],
-            profile_actions={prof_key: "allow"}
-        )
-
-        items = database.get_catalog_items_for_profile(prof_key, "yoto")
-        # 1. Recent item MUST be first!
-        self.assertEqual(items[0]["id"], "seq_recent_card")
-        # 2. Atomic whole-series rotation: when a series is pulled into discovery, all books are preserved in sequence order!
-        self.assertEqual(items[1]["id"], "seq_series_b1")
-        self.assertEqual(items[2]["id"], "seq_series_b2")
-        self.assertEqual(len(items), 3)
-
-        # Now test hide_physical
-        database.upsert_profile(prof_key, {
-            "display_name": "Rotation Kid",
-            "catalog_rotation_limit": 80,
-            "hide_physical": True,
-            "yoto": {
-                "inherit_shared": False,
-                "allowed_card_ids": ["seq_series_b1", "seq_series_b2", "seq_recent_card", "seq_phys_card"]
+            # Create test series items
+            s_book1 = {
+                "id": "seq_series_b1",
+                "type": "yoto",
+                "title": "Adventures in Magic #1: The Beginning",
+                "series": "Adventures in Magic",
+                "series_order": "1",
+                "has_physical": False
             }
-        })
-        items_hidden = database.get_catalog_items_for_profile(prof_key, "yoto")
-        item_ids = [it["id"] for it in items_hidden]
-        self.assertNotIn("seq_phys_card", item_ids)
-        self.assertIn("seq_series_b1", item_ids)
-        self.assertIn("seq_series_b2", item_ids)
+            s_book2 = {
+                "id": "seq_series_b2",
+                "type": "yoto",
+                "title": "Adventures in Magic #2: The Dark Forest",
+                "series": "Adventures in Magic",
+                "series_order": "2",
+                "has_physical": False
+            }
+            recent_card = {
+                "id": "seq_recent_card",
+                "type": "yoto",
+                "title": "Yesterday Bedtime Story",
+                "raw_metadata": {"lastPlayedAt": "2026-11-06T10:00:00Z"},
+                "has_physical": False
+            }
+            phys_card = {
+                "id": "seq_phys_card",
+                "type": "yoto",
+                "title": "Bedroom Binder Plastic Card",
+                "has_physical": True
+            }
+
+            database.upsert_media_items([s_book1, s_book2, recent_card, phys_card])
+            database.set_item_physical("seq_phys_card", True)
+
+            # Allow them explicitly for the isolated test profile
+            database.batch_update_profile_media_permissions(
+                media_ids=["seq_series_b1", "seq_series_b2", "seq_recent_card", "seq_phys_card"],
+                profile_actions={prof_key: "allow"}
+            )
+
+            items = database.get_catalog_items_for_profile(prof_key, "yoto")
+            # 1. Recent item MUST be first!
+            self.assertEqual(items[0]["id"], "seq_recent_card")
+            # 2. Atomic whole-series rotation: when a series is pulled into discovery, all books are preserved in sequence order!
+            self.assertEqual(items[1]["id"], "seq_series_b1")
+            self.assertEqual(items[2]["id"], "seq_series_b2")
+            self.assertEqual(len(items), 3)
+
+            # Now test hide_physical
+            database.upsert_profile(prof_key, {
+                "display_name": "Rotation Kid",
+                "catalog_rotation_limit": 80,
+                "hide_physical": True,
+                "yoto": {
+                    "inherit_shared": False,
+                    "allowed_card_ids": ["seq_series_b1", "seq_series_b2", "seq_recent_card", "seq_phys_card"]
+                }
+            })
+            items_hidden = database.get_catalog_items_for_profile(prof_key, "yoto")
+            item_ids = [it["id"] for it in items_hidden]
+            self.assertNotIn("seq_phys_card", item_ids)
+            self.assertIn("seq_series_b1", item_ids)
+            self.assertIn("seq_series_b2", item_ids)
+        finally:
+            database.delete_profile(prof_key)
+            conn = database.get_db_connection()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM media_items WHERE id IN ('seq_series_b1', 'seq_series_b2', 'seq_recent_card', 'seq_phys_card');")
+                    conn.execute("DELETE FROM media_playback_history WHERE profile_id = ?;", (prof_key,))
+            finally:
+                conn.close()
 
     def test_dual_profile_catalog_limits_touch_vs_kiosk(self):
         """Verifies dual profile limits: Touch device cap vs Kiosk unlimited / custom cap."""
         prof_key = "dual_test_kid"
-        # Seed 5 standalone cards
         test_cards = []
-        for i in range(1, 6):
-            cid = f"dual_card_{i}"
-            test_cards.append({
-                "id": cid,
-                "type": "yoto",
-                "title": f"Dual Test Story {i}",
-                "author": "Test Author",
-                "cover_url": f"https://example.com/{cid}.jpg",
-                "raw_data": {}
+        try:
+            # Seed 5 standalone cards
+            for i in range(1, 6):
+                cid = f"dual_card_{i}"
+                test_cards.append({
+                    "id": cid,
+                    "type": "yoto",
+                    "title": f"Dual Test Story {i}",
+                    "author": "Test Author",
+                    "cover_url": f"https://example.com/{cid}.jpg",
+                    "raw_data": {}
+                })
+            database.upsert_media_items(test_cards)
+
+            # Upsert profile with touch limit 2 and kiosk limit 0 (unlimited)
+            database.upsert_profile(prof_key, {
+                "display_name": "Dual Limit Kid",
+                "catalog_rotation_limit": 2,
+                "kiosk_catalog_limit": 0,
+                "yoto": {
+                    "inherit_shared": False,
+                    "allowed_card_ids": [c["id"] for c in test_cards]
+                }
             })
-        database.upsert_media_items(test_cards)
 
-        # Upsert profile with touch limit 2 and kiosk limit 0 (unlimited)
-        database.upsert_profile(prof_key, {
-            "display_name": "Dual Limit Kid",
-            "catalog_rotation_limit": 2,
-            "kiosk_catalog_limit": 0,
-            "yoto": {
-                "inherit_shared": False,
-                "allowed_card_ids": [c["id"] for c in test_cards]
-            }
+            # Verify Touch client receives exactly 2 cards
+            touch_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="touch")
+            self.assertEqual(len(touch_items), 2)
+
+            # Verify Kiosk client receives ALL 5 cards
+            kiosk_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
+            self.assertEqual(len(kiosk_items), 5)
+
+            # Verify the top 2 items on the Kiosk match the Touch items in exact order (The Superset Principle)
+            self.assertEqual(touch_items[0]["id"], kiosk_items[0]["id"])
+            self.assertEqual(touch_items[1]["id"], kiosk_items[1]["id"])
+
+            # Update Kiosk limit to a custom positive number (3)
+            database.upsert_profile(prof_key, {
+                "display_name": "Dual Limit Kid",
+                "catalog_rotation_limit": 2,
+                "kiosk_catalog_limit": 3,
+                "yoto": {
+                    "inherit_shared": False,
+                    "allowed_card_ids": [c["id"] for c in test_cards]
+                }
+            })
+            kiosk_items_capped = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
+            self.assertEqual(len(kiosk_items_capped), 3)
+        finally:
+            database.delete_profile(prof_key)
+            conn = database.get_db_connection()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM media_items WHERE id LIKE 'dual_card_%';")
+            finally:
+                conn.close()
+
+    def test_17_yoto_settings_and_credentials_lifecycle(self):
+        """Verifies GET and PUT for Yoto Cloud API credentials and OAuth PKCE start endpoint."""
+        with self.client.session_transaction() as sess:
+            sess["user_id"] = "admin_user"
+            sess["username"] = "admin"
+            sess["role"] = "admin"
+
+        # 1. Update Yoto credentials via PUT
+        res_put = self.client.put("/api/admin/settings/credentials", json={
+            "yoto_client_id": "test_client_id_12345",
+            "yoto_client_secret": "test_secret_67890",
+            "yoto_refresh_token": "test_refresh_abcde"
         })
+        self.assertEqual(res_put.status_code, 200)
+        self.assertTrue(res_put.get_json().get("ok"))
 
-        # Verify Touch client receives exactly 2 cards
-        touch_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="touch")
-        self.assertEqual(len(touch_items), 2)
+        # 2. Verify GET masks sensitive credentials
+        res_get = self.client.get("/api/admin/settings/credentials")
+        self.assertEqual(res_get.status_code, 200)
+        data = res_get.get_json()
+        self.assertEqual(data.get("yoto_client_id"), "test_client_id_12345")
+        self.assertIn("••••", data.get("yoto_refresh_token", ""))
 
-        # Verify Kiosk client receives ALL 5 cards
-        kiosk_items = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
-        self.assertEqual(len(kiosk_items), 5)
-
-        # Verify the top 2 items on the Kiosk match the Touch items in exact order (The Superset Principle)
-        self.assertEqual(touch_items[0]["id"], kiosk_items[0]["id"])
-        self.assertEqual(touch_items[1]["id"], kiosk_items[1]["id"])
-
-        # Update Kiosk limit to a custom positive number (3)
-        database.upsert_profile(prof_key, {
-            "display_name": "Dual Limit Kid",
-            "catalog_rotation_limit": 2,
-            "kiosk_catalog_limit": 3,
-            "yoto": {
-                "inherit_shared": False,
-                "allowed_card_ids": [c["id"] for c in test_cards]
-            }
+        # 3. Test OAuth PKCE start endpoint
+        res_oauth = self.client.post("/api/admin/yoto/oauth/start", json={
+            "client_id": "test_client_id_12345",
+            "redirect_uri": "http://127.0.0.1:8787/callback"
         })
-        kiosk_items_capped = database.get_catalog_items_for_profile(prof_key, "yoto", client_type="kiosk")
-        self.assertEqual(len(kiosk_items_capped), 3)
+        self.assertEqual(res_oauth.status_code, 200)
+        oauth_data = res_oauth.get_json()
+        self.assertTrue(oauth_data.get("ok"))
+        self.assertIn("https://login.yotoplay.com/authorize", oauth_data.get("auth_url", ""))
+        self.assertIn("code_challenge=", oauth_data.get("auth_url", ""))
 
 if __name__ == "__main__":
     unittest.main()

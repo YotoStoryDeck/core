@@ -62,8 +62,8 @@ def prune_orphan_thumbnails(valid_items: list) -> int:
                 try:
                     f.unlink()
                     removed += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed unlinking thumbnail %s: %s", f, e)
     except Exception as e:
         logger.warning("Error scanning CACHE_DIR for orphan thumbnails: %s", e)
     return removed
@@ -91,8 +91,8 @@ def get_thumbnail(cache_key: str, fetch_callable, size: int = THUMBNAIL_SIZE, cr
                 if custom_icon_file.exists() and custom_icon_file.stat().st_mtime >= cached_path.stat().st_mtime:
                     try:
                         cached_path.unlink()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed unlinking stale cache %s: %s", cached_path, e)
         if cached_path.exists():
             return cached_path
 

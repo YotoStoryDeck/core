@@ -219,8 +219,8 @@ def prune_stale_media_items(valid_ids: List[str], media_types: List[str] = None)
                     for icon_file in CUSTOM_ICONS_DIR.glob(f"{sid}_*.png"):
                         try:
                             icon_file.unlink()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Failed unlinking icon file %s: %s", icon_file, e)
                 if scover:
                     invalidate_thumbnail(f"yoto_{scover}")
         except Exception as e:

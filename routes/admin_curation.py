@@ -332,8 +332,10 @@ def admin_update_abs_item_tags():
         if row and row["raw_metadata"]:
             try:
                 raw_meta = json.loads(row["raw_metadata"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Corrupted raw_metadata for media item %s: %s", item_id, e)
+                # Keep existing raw_metadata safe rather than overwriting with empty dict
+                return jsonify({"ok": False, "error": f"Corrupted metadata in database for {item_id}"}), 500
         raw_meta["tags"] = tags
         with conn:
             conn.execute("UPDATE media_items SET raw_metadata = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (json.dumps(raw_meta), item_id))

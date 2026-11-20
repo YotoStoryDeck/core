@@ -369,8 +369,8 @@ def serve_profile_avatar(profile_id: str):
                 if norm:
                     profile["avatar_url"] = norm
                     database.upsert_profile(pid, profile)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed materializing base64 avatar for %s: %s", pid, e)
         elif av_url.startswith("http://") or av_url.startswith("https://"):
             try:
                 res = requests.get(av_url, timeout=8)

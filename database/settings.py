@@ -93,8 +93,8 @@ def get_api_credentials() -> Dict[str, str]:
             try:
                 with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
                     legacy_data = json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed reading legacy config at %s: %s", LEGACY_CONFIG_PATH, e)
         legacy_settings = legacy_data.get("settings", {})
         def resolve_val(db_key: str, env_key: str, default_val: str = "") -> str:
             val = db_creds.get(db_key)
@@ -118,7 +118,7 @@ def get_api_credentials() -> Dict[str, str]:
             "yoto_client_id": resolve_val("yoto_client_id", "YOTO_CLIENT_ID", ""),
             "yoto_client_secret": resolve_val("yoto_client_secret", "YOTO_CLIENT_SECRET", ""),
             "yoto_refresh_token": resolve_val("yoto_refresh_token", "YOTO_REFRESH_TOKEN", ""),
-            "yoto_bridge_url": resolve_val("yoto_bridge_url", "YOTO_BRIDGE_URL", "http://yoto-bridge:8080"),
+            "yoto_bridge_url": resolve_val("yoto_bridge_url", "YOTO_BRIDGE_URL", ""),
             "yoto_bridge_api_key": resolve_val("yoto_bridge_api_key", "YOTO_BRIDGE_API_KEY", ""),
             "yoto_ui_pin": resolve_val("yoto_ui_pin", "YOTO_UI_PIN", ""),
             "tinker_api_key": resolve_val("tinker_api_key", "TINKER_API_KEY", ""),

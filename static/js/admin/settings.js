@@ -2,32 +2,227 @@
 // Diagnostics & Settings (Tab 4)
 // ============================================================================
 
-function onYotoModeChange() {
-  const mode = document.getElementById("yotoConnectionMode").value;
-  const bridgeSection = document.getElementById("sectionBridgeConfig");
-  const directSection = document.getElementById("sectionDirectYotoCloud");
-  const absSection = document.getElementById("sectionAbsConfig");
-  const tinkerSection = document.getElementById("sectionTinkerConfig");
-  const aiSection = document.getElementById("sectionAiConfig");
-
-  if (mode === "bridge") {
-    // Mode 1: Bridge Mode (Hybrid ABS + Yoto Streaming)
-    if (bridgeSection) bridgeSection.style.display = "block";
-    if (directSection) directSection.style.display = "none";
-    if (absSection) absSection.style.display = "block";
-    if (tinkerSection) tinkerSection.style.display = "block";
-    if (aiSection) aiSection.style.display = "block";
+function toggleYotoRefreshTokenVisibility() {
+  const input = document.getElementById("credYotoRefresh");
+  const btn = document.getElementById("btnToggleYotoRefresh");
+  if (!input) return;
+  if (input.type === "password") {
+    input.type = "text";
+    if (btn) btn.innerText = "🙈";
   } else {
-    // Mode 2: Standalone Direct Yoto Cloud (Pure Yoto - No ABS / No Bridge / No AI)
-    if (bridgeSection) bridgeSection.style.display = "none";
-    if (directSection) directSection.style.display = "block";
-    if (absSection) absSection.style.display = "none";
-    if (tinkerSection) tinkerSection.style.display = "none";
-    if (aiSection) aiSection.style.display = "none";
+    input.type = "password";
+    if (btn) btn.innerText = "👁️";
+  }
+}
+
+// Deprecated mode switcher kept as no-op for backwards compatibility
+function onYotoModeChange() {}
+
+// ----------------------------------------------------------------------------
+// Card Expansion / Collapsing
+// ----------------------------------------------------------------------------
+
+function toggleCardExpansion(cardId) {
+  const body = document.getElementById(`${cardId}Body`);
+  const chevron = document.getElementById(`${cardId}Chevron`);
+  if (!body) return;
+  const isHidden = window.getComputedStyle(body).display === "none";
+  body.style.display = isHidden ? "block" : "none";
+  if (chevron) {
+    if (isHidden) {
+      chevron.classList.add("expanded");
+    } else {
+      chevron.classList.remove("expanded");
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Section Connection Badges (Connected vs Not Connected)
+// ----------------------------------------------------------------------------
+
+function updateBadge(target, isConnected) {
+  const badge = document.getElementById(`${target}ConnectionBadge`);
+  if (!badge) return;
+  if (isConnected) {
+    badge.className = "badge badge-success";
+    badge.innerText = "Connected";
+  } else {
+    badge.className = "badge badge-subtle";
+    badge.innerText = "Not Connected";
+  }
+}
+
+function updateConnectionBadges() {
+  const yotoClient = document.getElementById("credYotoClientId")?.value.trim();
+  const yotoRefresh = document.getElementById("credYotoRefresh")?.value.trim();
+  updateBadge("yoto", Boolean(yotoClient && yotoRefresh));
+
+  const absUrl = document.getElementById("credAbsUrl")?.value.trim();
+  const absKey = document.getElementById("credAbsKey")?.value.trim();
+  updateBadge("abs", Boolean(absUrl && absKey));
+
+  const tinkerKey = document.getElementById("credTinkerKey")?.value.trim();
+  updateBadge("tinker", Boolean(tinkerKey));
+
+  const aiKey = document.getElementById("credOpenRouterKey")?.value.trim();
+  updateBadge("ai", Boolean(aiKey));
+}
+
+// ----------------------------------------------------------------------------
+// Unsaved Changes Tracking System
+// ----------------------------------------------------------------------------
+
+let settingsBaseline = {
+  yoto: { client_id: "", secret: "", refresh: "" },
+  abs: { url: "", key: "" },
+  tinker: { key: "" },
+  ai: { key: "" },
+  preferences: { exclude: true, refresh_enabled: true, refresh_hours: "6" }
+};
+
+function snapshotBaseline(section) {
+  if (section === "yoto" || !section) {
+    settingsBaseline.yoto = {
+      client_id: document.getElementById("credYotoClientId")?.value.trim() || "",
+      secret: document.getElementById("credYotoSecret")?.value.trim() || "",
+      refresh: document.getElementById("credYotoRefresh")?.value.trim() || ""
+    };
+  }
+  if (section === "abs" || !section) {
+    settingsBaseline.abs = {
+      url: document.getElementById("credAbsUrl")?.value.trim() || "",
+      key: document.getElementById("credAbsKey")?.value.trim() || ""
+    };
+  }
+  if (section === "tinker" || !section) {
+    settingsBaseline.tinker = {
+      key: document.getElementById("credTinkerKey")?.value.trim() || ""
+    };
+  }
+  if (section === "ai" || !section) {
+    settingsBaseline.ai = {
+      key: document.getElementById("credOpenRouterKey")?.value.trim() || ""
+    };
+  }
+  if (section === "preferences" || !section) {
+    settingsBaseline.preferences = {
+      exclude: document.getElementById("toggleExcludeSingleSeries")?.checked ?? true,
+      refresh_enabled: document.getElementById("toggleAutoLibraryRefresh")?.checked ?? true,
+      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6")
+    };
+  }
+}
+
+function setSectionDirty(section, isDirty) {
+  const badge = document.getElementById(`unsaved-${section}`);
+  if (badge) {
+    badge.style.display = isDirty ? "inline-flex" : "none";
+  }
+  const headerBadge = document.getElementById(`unsaved-header-${section}`);
+  if (headerBadge) {
+    headerBadge.style.display = isDirty ? "inline-flex" : "none";
+  }
+  let btnId = "";
+  if (section === "yoto") btnId = "btnSaveYoto";
+  else if (section === "abs") btnId = "btnSaveAbs";
+  else if (section === "tinker") btnId = "btnSaveTinker";
+  else if (section === "ai") btnId = "btnSaveAi";
+  else if (section === "preferences") btnId = "btnSavePreferences";
+
+  const btn = document.getElementById(btnId);
+  if (btn) {
+    if (isDirty) {
+      btn.classList.add("btn-unsaved");
+    } else {
+      btn.classList.remove("btn-unsaved");
+    }
+  }
+}
+
+function checkDirty(section) {
+  if (section === "yoto") {
+    const cur = {
+      client_id: document.getElementById("credYotoClientId")?.value.trim() || "",
+      secret: document.getElementById("credYotoSecret")?.value.trim() || "",
+      refresh: document.getElementById("credYotoRefresh")?.value.trim() || ""
+    };
+    const b = settingsBaseline.yoto;
+    const dirty = cur.client_id !== b.client_id || cur.secret !== b.secret || cur.refresh !== b.refresh;
+    setSectionDirty("yoto", dirty);
+  } else if (section === "abs") {
+    const cur = {
+      url: document.getElementById("credAbsUrl")?.value.trim() || "",
+      key: document.getElementById("credAbsKey")?.value.trim() || ""
+    };
+    const b = settingsBaseline.abs;
+    const dirty = cur.url !== b.url || cur.key !== b.key;
+    setSectionDirty("abs", dirty);
+  } else if (section === "tinker") {
+    const curKey = document.getElementById("credTinkerKey")?.value.trim() || "";
+    setSectionDirty("tinker", curKey !== settingsBaseline.tinker.key);
+  } else if (section === "ai") {
+    const curKey = document.getElementById("credOpenRouterKey")?.value.trim() || "";
+    setSectionDirty("ai", curKey !== settingsBaseline.ai.key);
+  } else if (section === "preferences") {
+    const cur = {
+      exclude: document.getElementById("toggleExcludeSingleSeries")?.checked ?? true,
+      refresh_enabled: document.getElementById("toggleAutoLibraryRefresh")?.checked ?? true,
+      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6")
+    };
+    const b = settingsBaseline.preferences;
+    const dirty = cur.exclude !== b.exclude || cur.refresh_enabled !== b.refresh_enabled || cur.refresh_hours !== b.refresh_hours;
+    setSectionDirty("preferences", dirty);
+  }
+}
+
+function checkAllDirtyStates() {
+  ["yoto", "abs", "tinker", "ai", "preferences"].forEach(checkDirty);
+}
+
+let dirtyListenersInitialized = false;
+function setupSettingsDirtyListeners() {
+  if (dirtyListenersInitialized) return;
+  dirtyListenersInitialized = true;
+
+  const yotoInputs = ["credYotoClientId", "credYotoSecret", "credYotoRefresh"];
+  yotoInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", () => { checkDirty("yoto"); updateConnectionBadges(); });
+      el.addEventListener("change", () => { checkDirty("yoto"); updateConnectionBadges(); });
+    }
+  });
+
+  const absInputs = ["credAbsUrl", "credAbsKey"];
+  absInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", () => { checkDirty("abs"); updateConnectionBadges(); });
+      el.addEventListener("change", () => { checkDirty("abs"); updateConnectionBadges(); });
+    }
+  });
+
+  const tinkerEl = document.getElementById("credTinkerKey");
+  if (tinkerEl) {
+    tinkerEl.addEventListener("input", () => { checkDirty("tinker"); updateConnectionBadges(); });
+    tinkerEl.addEventListener("change", () => { checkDirty("tinker"); updateConnectionBadges(); });
   }
 
-  // Also auto-save the selected mode
-  saveApiCredentialsPartial({ yoto_connection_mode: mode }, false);
+  const aiEl = document.getElementById("credOpenRouterKey");
+  if (aiEl) {
+    aiEl.addEventListener("input", () => { checkDirty("ai"); updateConnectionBadges(); });
+    aiEl.addEventListener("change", () => { checkDirty("ai"); updateConnectionBadges(); });
+  }
+
+  const prefInputs = ["toggleExcludeSingleSeries", "toggleAutoLibraryRefresh", "autoLibraryRefreshHours"];
+  prefInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", () => checkDirty("preferences"));
+      el.addEventListener("change", () => checkDirty("preferences"));
+    }
+  });
 }
 
 async function loadApiCredentials() {
@@ -35,26 +230,26 @@ async function loadApiCredentials() {
     const res = await fetch("/api/admin/settings/credentials");
     if (!res.ok) return;
     const creds = await res.json();
-    if (creds.abs_base_url) document.getElementById("credAbsUrl").value = creds.abs_base_url;
-    if (creds.abs_api_key) document.getElementById("credAbsKey").value = creds.abs_api_key;
-    if (creds.yoto_client_id) document.getElementById("credYotoClientId").value = creds.yoto_client_id;
-    if (creds.yoto_client_secret) document.getElementById("credYotoSecret").value = creds.yoto_client_secret;
-    if (creds.yoto_refresh_token) document.getElementById("credYotoRefresh").value = creds.yoto_refresh_token;
-    if (creds.yoto_bridge_url) document.getElementById("credBridgeUrl").value = creds.yoto_bridge_url;
-    if (creds.yoto_bridge_api_key && document.getElementById("credBridgeApiKey")) {
-      document.getElementById("credBridgeApiKey").value = creds.yoto_bridge_api_key;
+    if (creds.yoto_client_id && document.getElementById("credYotoClientId")) {
+      document.getElementById("credYotoClientId").value = creds.yoto_client_id;
+    }
+    if (creds.yoto_client_secret && document.getElementById("credYotoSecret")) {
+      document.getElementById("credYotoSecret").value = creds.yoto_client_secret;
+    }
+    if (creds.yoto_refresh_token && document.getElementById("credYotoRefresh")) {
+      document.getElementById("credYotoRefresh").value = creds.yoto_refresh_token;
+    }
+    if (creds.abs_base_url && document.getElementById("credAbsUrl")) {
+      document.getElementById("credAbsUrl").value = creds.abs_base_url;
+    }
+    if (creds.abs_api_key && document.getElementById("credAbsKey")) {
+      document.getElementById("credAbsKey").value = creds.abs_api_key;
     }
     if (creds.tinker_api_key && document.getElementById("credTinkerKey")) {
       document.getElementById("credTinkerKey").value = creds.tinker_api_key;
     }
     if (creds.openrouter_api_key && document.getElementById("credOpenRouterKey")) {
       document.getElementById("credOpenRouterKey").value = creds.openrouter_api_key;
-    }
-
-    const modeSelect = document.getElementById("yotoConnectionMode");
-    if (modeSelect) {
-      modeSelect.value = creds.yoto_connection_mode || "bridge";
-      onYotoModeChange();
     }
 
     // Load master security API key
@@ -66,6 +261,12 @@ async function loadApiCredentials() {
     // Load default children tags and fetch live ABS server tags
     await loadAbsDefaultTags();
     await fetchAbsServerTags();
+
+    // Snapshot clean baseline, check dirty flags, and setup listeners
+    snapshotBaseline();
+    checkAllDirtyStates();
+    updateConnectionBadges();
+    setupSettingsDirtyListeners();
   } catch (err) {
     console.error("Failed to load credentials:", err);
   }
@@ -157,6 +358,8 @@ async function savePreferencesSettings() {
     });
     const data = await res.json();
     if (res.ok && data.ok) {
+      snapshotBaseline("preferences");
+      checkDirty("preferences");
       renderLibraryRefreshStatus(data.scheduler_status);
       showToast("Preferences saved successfully!", "success");
     } else {
@@ -455,49 +658,33 @@ async function saveApiCredentialsPartial(payload, notify = true) {
   }
 }
 
-async function saveBridgeSettings() {
-  const btn = document.getElementById("btnSaveBridge");
-  if (btn) { btn.disabled = true; btn.innerText = "💾 Saving..."; }
-
-  const url = document.getElementById("credBridgeUrl").value.trim();
-  const apiKey = document.getElementById("credBridgeApiKey") ? document.getElementById("credBridgeApiKey").value.trim() : "";
-  const mode = document.getElementById("yotoConnectionMode").value;
-
-  const success = await saveApiCredentialsPartial({
-    yoto_connection_mode: mode,
-    yoto_bridge_url: url,
-    yoto_bridge_api_key: apiKey
-  });
-
-  if (btn) { btn.disabled = false; btn.innerText = "💾 Save"; }
-  if (success) {
-    const statusEl = document.getElementById("bridgeStatusInline");
-    if (statusEl) statusEl.innerText = "Saved. Click Test Connection to verify.";
-  }
-}
-
-async function saveYotoStandaloneSettings() {
+async function saveYotoSettings() {
   const btn = document.getElementById("btnSaveYoto");
   if (btn) { btn.disabled = true; btn.innerText = "💾 Saving..."; }
 
-  const mode = document.getElementById("yotoConnectionMode").value;
-  const clientId = document.getElementById("credYotoClientId").value.trim();
-  const secret = document.getElementById("credYotoSecret").value.trim();
-  const refresh = document.getElementById("credYotoRefresh").value.trim();
+  const clientId = document.getElementById("credYotoClientId") ? document.getElementById("credYotoClientId").value.trim() : "";
+  const secret = document.getElementById("credYotoSecret") ? document.getElementById("credYotoSecret").value.trim() : "";
+  const refresh = document.getElementById("credYotoRefresh") ? document.getElementById("credYotoRefresh").value.trim() : "";
 
   const success = await saveApiCredentialsPartial({
-    yoto_connection_mode: mode,
     yoto_client_id: clientId,
     yoto_client_secret: secret,
     yoto_refresh_token: refresh
   });
 
-  if (btn) { btn.disabled = false; btn.innerText = "💾 Save"; }
+  if (btn) { btn.disabled = false; btn.innerText = "💾 Save Yoto Settings"; }
   if (success) {
+    snapshotBaseline("yoto");
+    checkDirty("yoto");
+    updateConnectionBadges();
     const statusEl = document.getElementById("yotoStatusInline");
-    if (statusEl) statusEl.innerText = "Saved. Click Test OAuth to verify.";
+    if (statusEl) statusEl.innerText = "Saved. Click Test Connection to verify.";
   }
 }
+
+// Backwards-compatible alias
+const saveYotoStandaloneSettings = saveYotoSettings;
+async function saveBridgeSettings() { return saveYotoSettings(); }
 
 async function saveAbsSettings() {
   const btn = document.getElementById("btnSaveAbs");
@@ -511,8 +698,11 @@ async function saveAbsSettings() {
     abs_api_key: key
   });
 
-  if (btn) { btn.disabled = false; btn.innerText = "💾 Save"; }
+  if (btn) { btn.disabled = false; btn.innerText = "💾 Save ABS Settings"; }
   if (success) {
+    snapshotBaseline("abs");
+    checkDirty("abs");
+    updateConnectionBadges();
     const statusEl = document.getElementById("absStatusInline");
     if (statusEl) statusEl.innerText = "Saved. Click Test Connection to verify.";
   }
@@ -529,8 +719,11 @@ async function saveTinkerSettings() {
     tinker_api_key: key
   });
 
-  if (btn) { btn.disabled = false; btn.innerText = "💾 Save"; }
+  if (btn) { btn.disabled = false; btn.innerText = "💾 Save Tinker Settings"; }
   if (success) {
+    snapshotBaseline("tinker");
+    checkDirty("tinker");
+    updateConnectionBadges();
     const statusEl = document.getElementById("tinkerStatusInline");
     if (statusEl) statusEl.innerText = "Saved. Click Test API Key to verify.";
   }
@@ -547,8 +740,11 @@ async function saveAiSettings() {
     openrouter_api_key: key
   });
 
-  if (btn) { btn.disabled = false; btn.innerText = "💾 Save"; }
+  if (btn) { btn.disabled = false; btn.innerText = "💾 Save AI Settings"; }
   if (success) {
+    snapshotBaseline("ai");
+    checkDirty("ai");
+    updateConnectionBadges();
     const statusEl = document.getElementById("aiStatusInline");
     if (statusEl) statusEl.innerText = "Saved. Click Test API Key to verify.";
   }
@@ -573,18 +769,21 @@ async function testServiceConnection(target) {
       if (statusEl) {
         statusEl.innerHTML = `<span style="color: var(--accent-success);">✅ ${escapeHtml(msg)}</span>`;
       }
+      updateBadge(target, true);
       showToast(`${target.toUpperCase()} PASSED: ${msg}`, "success");
     } else {
       const err = data.error || "Connection check failed.";
       if (statusEl) {
         statusEl.innerHTML = `<span style="color: var(--accent-danger);">❌ ${escapeHtml(err)}</span>`;
       }
+      updateBadge(target, false);
       showToast(`${target.toUpperCase()} failed: ${err}`, "danger");
     }
   } catch (err) {
     if (statusEl) {
       statusEl.innerHTML = `<span style="color: var(--accent-danger);">❌ Network error reaching endpoint.</span>`;
     }
+    updateBadge(target, false);
     showToast(`Network error testing ${target}.`, "danger");
   } finally {
     if (btn) btn.disabled = false;

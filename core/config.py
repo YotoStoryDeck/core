@@ -45,7 +45,7 @@ ABS_API_KEY = os.getenv("ABS_API_KEY", "")
 YOTO_CLIENT_ID = os.getenv("YOTO_CLIENT_ID", "")
 YOTO_CLIENT_SECRET = os.getenv("YOTO_CLIENT_SECRET", "")
 YOTO_REFRESH_TOKEN = os.getenv("YOTO_REFRESH_TOKEN", "")
-YOTO_BRIDGE_URL = os.getenv("YOTO_BRIDGE_URL", "http://yoto-bridge:8080").rstrip("/")
+YOTO_BRIDGE_URL = os.getenv("YOTO_BRIDGE_URL", "").rstrip("/")
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/app/cache/thumbnails" if database.IS_DOCKER else str(Path(__file__).parent.parent / "cache" / "thumbnails")))
 AVATARS_DIR = Path(os.getenv("AVATARS_DIR", "/app/data/avatars" if database.IS_DOCKER else str(Path(__file__).parent.parent / "data" / "avatars")))
 CUSTOM_ICONS_DIR = Path(os.getenv("CUSTOM_ICONS_DIR", "/app/data/custom_icons" if database.IS_DOCKER else str(Path(__file__).parent.parent / "data" / "custom_icons")))
@@ -62,8 +62,8 @@ for p in TRUSTED_PROXIES_RAW.split(","):
         except Exception:
             try:
                 TRUSTED_PROXIES.append(ipaddress.ip_network(f"{p_clean}/32", strict=False))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed parsing TRUSTED_PROXIES entry '%s': %s", p_clean, e)
 
 # Ensure directories exist
 CACHE_DIR.mkdir(parents=True, exist_ok=True)

@@ -71,8 +71,8 @@ def get_installed_version() -> str:
         out = res.stdout.strip()
         if out:
             return out if out.startswith("v") else f"v{out}"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("git describe version resolution notice: %s", e)
 
     # Tier 4: Static Fallback
     return "v1.1.0-dev"
