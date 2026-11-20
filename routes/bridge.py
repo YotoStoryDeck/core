@@ -23,6 +23,16 @@ bridge_bp = Blueprint("bridge", __name__)
 # 1. Audio Streaming & Icon Endpoints (Yoto Devices & Players)
 # -----------------------------------------------------------------------------
 
+@bridge_bp.route("/s/health", methods=["GET"])
+def health_check():
+    """Health check endpoint for reverse proxy, deploy scripts, and Uptime Kuma."""
+    return jsonify({
+        "status": "healthy",
+        "service": "storydeck-core-bridge",
+        "version": "v1.1.0"
+    }), 200
+
+
 @bridge_bp.route("/s/audio/<slot_id>/<int:track_idx>", methods=["GET"])
 def stream_track_audio(slot_id: str, track_idx: int):
     """
@@ -481,3 +491,97 @@ def trigger_lru_prune():
     """
     result = prune_evicted_profile_playlists()
     return jsonify(result)
+
+
+# -----------------------------------------------------------------------------
+# 4. Mobile Front Portal Player & Catalog Endpoints
+# -----------------------------------------------------------------------------
+
+@bridge_bp.route("/api/player/devices", methods=["GET"])
+@require_auth
+def get_player_devices():
+    """Returns available Yoto player hardware devices."""
+    if not clients.yoto_client:
+        return jsonify([])
+    try:
+        devices = clients.yoto_client.get_devices()
+        return jsonify(devices)
+    except Exception as e:
+        logger.error("Failed to query player devices: %s", e)
+        return jsonify([])
+
+
+@bridge_bp.route("/api/player/status/<device_id>", methods=["GET"])
+@require_auth
+def get_device_status_endpoint(device_id: str):
+    """Returns device playback status (volume, online, playing)."""
+    if not clients.yoto_client:
+        return jsonify({})
+    try:
+        status = clients.yoto_client.get_card_detail(device_id) or {}
+        return jsonify(status)
+    except Exception as e:
+        logger.debug("Device status query notice for %s: %s", device_id, e)
+        return jsonify({})
+
+
+@bridge_bp.route("/api/player/transport", methods=["POST"])
+@require_auth
+def send_player_transport():
+    """
+    Sends transport and volume commands from the Parent Web Portal.
+    Payload: { "device_id": str, "action": "play"|"pause"|"resume"|"stop"|"next"|"prev"|"volume", "volume": int }
+    """
+    data = request.get_json() or {}
+    device_id = data.get("device_id")
+    action = data.get("action")
+    if not device_id or not action:
+        return jsonify({"error": "device_id and action are required"}), 400
+
+    if not clients.yoto_client:
+        return jsonify({"error": "Yoto client not configured"}), 503
+
+    if action == "volume":
+        vol = max(0, min(100, int(data.get("volume", 50))))
+        ok = clients.yoto_client.set_volume(device_id, vol)
+        return jsonify({"ok": ok, "volume": vol})
+    else:
+        # map 'play' action to 'resume'
+        act = "resume" if action == "play" else action
+        ok = clients.yoto_client.send_transport_command(device_id, act)
+        return jsonify({"ok": ok, "action": action})
+
+
+@bridge_bp.route("/api/player/play", methods=["POST"])
+@require_auth
+def start_player_card():
+    """
+    Commands a Yoto player to begin playback of a specific card/playlist.
+    Payload: { "device_id": str, "card_id": str, "chapter": int }
+    """
+    data = request.get_json() or {}
+    device_id = data.get("device_id")
+    card_id = data.get("card_id")
+    chapter = int(data.get("chapter", 1))
+
+    if not device_id or not card_id:
+        return jsonify({"error": "device_id and card_id are required"}), 400
+
+    if not clients.yoto_client:
+        return jsonify({"error": "Yoto client not configured"}), 503
+
+    ok = clients.yoto_client.start_playback(device_id, card_id, chapter=chapter)
+    return jsonify({"ok": ok, "device_id": device_id, "card_id": card_id, "chapter": chapter})
+
+
+@bridge_bp.route("/api/library/profile/<profile_id>", methods=["GET"])
+@require_auth
+def get_profile_library_catalog(profile_id: str):
+    """Returns curated ABS audiobooks and series permitted for the specified child profile."""
+    from database.curation import get_catalog_items_for_profile
+    try:
+        items = get_catalog_items_for_profile(profile_id, media_type="abs", client_type="kiosk")
+        return jsonify(items)
+    except Exception as e:
+        logger.error("Failed to query catalog for profile %s: %s", profile_id, e)
+        return jsonify([])

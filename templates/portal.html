@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>StoryDeck • Parent Portal</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/static/css/admin.css">
+  <style>
+    :root {
+      --portal-max-w: 680px;
+    }
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      padding-bottom: 76px; /* space for bottom nav */
+      overflow-x: hidden;
+    }
+    .portal-container {
+      max-width: var(--portal-max-w);
+      margin: 0 auto;
+      padding: 12px 16px;
+    }
+    /* Top Header */
+    .portal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .portal-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+    .portal-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    /* Bottom Navigation Bar */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      flex: 1;
+      height: 100%;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .nav-item .nav-icon {
+      font-size: 19px;
+      line-height: 1;
+    }
+    .nav-item.active {
+      color: var(--accent-yoto);
+    }
+    .nav-item.active .nav-icon {
+      transform: scale(1.1);
+    }
+    /* Tab Views */
+    .tab-view {
+      display: none;
+    }
+    .tab-view.active {
+      display: block;
+      animation: fadeIn 0.15s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Player Tab Styles */
+    .player-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      text-align: center;
+      box-shadow: var(--shadow-md);
+      margin-top: 10px;
+    }
+    .player-cover {
+      width: 220px;
+      height: 220px;
+      margin: 0 auto 16px;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      border: 2px solid var(--border-subtle);
+      background: var(--bg-surface-elevated);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .player-cover img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .player-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .player-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+    .scrub-container {
+      margin-bottom: 16px;
+    }
+    .scrub-slider {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      accent-color: var(--accent-yoto);
+      cursor: pointer;
+    }
+    .scrub-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .transport-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .btn-circle {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-circle:active {
+      transform: scale(0.92);
+    }
+    .btn-circle-lg {
+      width: 64px;
+      height: 64px;
+      font-size: 26px;
+      background: var(--accent-yoto);
+      border: none;
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(229, 53, 43, 0.4);
+    }
+    .volume-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-surface-elevated);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .volume-box input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent-abs);
+    }
+    .sleep-timer-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    /* Library Grid */
+    .library-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .book-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .book-card:active {
+      transform: scale(0.97);
+    }
+    .book-thumb {
+      width: 100%;
+      aspect-ratio: 1;
+      background: var(--bg-surface-elevated);
+      overflow: hidden;
+      position: relative;
+    }
+    .book-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .book-info {
+      padding: 8px 10px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .book-title {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-bottom: 2px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .book-author {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* List item (Cards & Playlists) */
+    .item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .list-item-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .list-item-thumb {
+      width: 52px;
+      height: 52px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-elevated);
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .list-item-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .list-item-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .list-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .list-item-desc {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .list-item-tags {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .filter-bar select, .filter-bar input {
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body class="dark-theme">
+
+  <!-- Header -->
+  <header class="portal-header">
+    <a href="/" class="portal-brand">
+      <span>📻</span>
+      <span>StoryDeck</span>
+    </a>
+    <div class="portal-header-actions">
+      <!-- Child Profile Dropdown -->
+      <select id="headerProfileSelect" class="form-control" style="font-size: 12px; padding: 4px 8px; height: 32px;" onchange="switchActiveProfile(this.value)">
+        <!-- Populated via JS -->
+      </select>
+      <a href="/admin" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 4px 10px;">⚙️ Admin</a>
+    </div>
+  </header>
+
+  <main class="portal-container">
+
+    <!-- ===================================================================== -->
+    <!-- TAB 1: PLAYER                                                         -->
+    <!-- ===================================================================== -->
+    <section id="tabPlayer" class="tab-view active">
+      <!-- Hardware Device Selector -->
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px;">
+        <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Target Yoto Player</span>
+        <select id="playerDeviceSelect" class="form-control" style="font-size: 12px; padding: 4px 8px; width: auto; max-width: 220px;" onchange="onPlayerDeviceChange(this.value)">
+          <option value="">Detecting Yoto Devices...</option>
+        </select>
+      </div>
+
+      <!-- Player Console -->
+      <div class="player-card">
+        <div class="player-cover">
+          <img id="playerCoverImg" src="/static/img/placeholder.png" alt="Cover">
+          <div id="playerModeBadge" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">
+            ⚡ Streaming
+          </div>
+        </div>
+
+        <div class="player-title" id="playerTitle">No Active Playback</div>
+        <div class="player-subtitle" id="playerSubtitle">Select an audiobook from the Library tab</div>
+
+        <!-- Scrub bar -->
+        <div class="scrub-container">
+          <input type="range" id="playerScrubBar" class="scrub-slider" min="0" max="100" value="0" onchange="onScrubChange(this.value)">
+          <div class="scrub-times">
+            <span id="playerTimeElapsed">0:00</span>
+            <span id="playerTimeRemaining">-0:00</span>
+          </div>
+        </div>
+
+        <!-- Big Transport Buttons -->
+        <div class="transport-controls">
+          <button class="btn-circle" onclick="sendPlayerTransport('prev')" title="Previous Chapter">⏮️</button>
+          <button class="btn-circle btn-circle-lg" id="btnPlayPause" onclick="togglePlayPause()" title="Play / Pause">▶️</button>
+          <button class="btn-circle" onclick="sendPlayerTransport('next')" title="Next Chapter">⏭️</button>
+        </div>
+
+        <!-- Volume Slider with Ceiling Clamp -->
+        <div class="volume-box">
+          <span>🔊</span>
+          <input type="range" id="playerVolumeSlider" min="0" max="100" value="50" oninput="onVolumeInput(this.value)" onchange="onVolumeChange(this.value)">
+          <span id="playerVolumeLabel" style="font-size: 12px; font-weight: 600; min-width: 36px;">50%</span>
+        </div>
+
+        <!-- Sleep Timer -->
+        <div style="margin-top: 14px;">
+          <span style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 8px;">🌙 Bedtime Sleep Timer</span>
+          <div class="sleep-timer-row">
+            <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(15)">15m</button>
+            <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(30)">30m</button>
+            <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(45)">45m</button>
+            <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(60)">60m</button>
+            <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(0)">Off</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 2: LIBRARY                                                        -->
+    <!-- ===================================================================== -->
+    <section id="tabLibrary" class="tab-view">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <h3 style="font-size: 15px; margin: 0;">📚 Child Library</h3>
+        <span id="libraryChildNameLabel" style="font-size: 11px; color: var(--accent-info);">Showing books for Alex</span>
+      </div>
+
+      <!-- Search & Series Filter -->
+      <div class="filter-bar">
+        <input type="text" id="librarySearchInput" class="form-control" style="flex: 2; min-width: 150px;" placeholder="Search books..." oninput="filterLibraryGrid()">
+        <select id="librarySeriesSelect" class="form-control" style="flex: 1; min-width: 120px;" onchange="filterLibraryGrid()">
+          <option value="">All Series</option>
+        </select>
+      </div>
+
+      <!-- Library Grid -->
+      <div id="libraryGrid" class="library-grid">
+        <!-- Rendered via JS -->
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 3: CARDS (PHYSICAL INVENTORY)                                     -->
+    <!-- ===================================================================== -->
+    <section id="tabCards" class="tab-view">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 15px; margin: 0;">💳 Physical Cards Inventory</h3>
+        <button class="btn btn-primary btn-sm" onclick="openAddCardModal()">+ Add Card Slot</button>
+      </div>
+      <p class="text-secondary" style="font-size: 11px; margin-top: 4px; margin-bottom: 12px;">
+        Manage physical NFC Make-Your-Own cards and dedicated child profile cards.
+      </p>
+
+      <!-- Section A: Profile Dedicated Cards -->
+      <h4 style="font-size: 12px; color: var(--accent-abs); text-transform: uppercase; margin-bottom: 6px;">👶 Child Profile Dedicated Cards</h4>
+      <div id="profileCardsList" class="item-list" style="margin-bottom: 20px;">
+        <!-- Populated via JS -->
+      </div>
+
+      <!-- Section B: Fleet / Multi-Use Cards -->
+      <h4 style="font-size: 12px; color: var(--accent-info); text-transform: uppercase; margin-bottom: 6px;">🏷️ Fleet & Multi-Use Cards</h4>
+      <div id="fleetCardsList" class="item-list">
+        <!-- Populated via JS -->
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 4: PLAYLISTS (CLOUD AUDIO MANIFESTS)                               -->
+    <!-- ===================================================================== -->
+    <section id="tabPlaylists" class="tab-view">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 15px; margin: 0;">☁️ Yoto Cloud Playlists</h3>
+        <button class="btn btn-secondary btn-sm" onclick="triggerManualPrune()" title="Removes evicted ephemeral profile caches while preserving pinned cards">⚡ Prune Evicted Caches</button>
+      </div>
+      <p class="text-secondary" style="font-size: 11px; margin-top: 4px; margin-bottom: 10px;">
+        All playlists on your Yoto Cloud account. Pin playlists to protect them from automated LRU cleaning.
+      </p>
+
+      <!-- Filter Chips -->
+      <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+        <button class="btn btn-sm btn-primary" id="chipAll" onclick="setPlaylistFilter('all')">All (<span id="countAll">0</span>)</button>
+        <button class="btn btn-sm btn-secondary" id="chipBroker" onclick="setPlaylistFilter('broker')">📻 StoryDeck Caches (<span id="countBroker">0</span>)</button>
+        <button class="btn btn-sm btn-secondary" id="chipCustom" onclick="setPlaylistFilter('custom')">🎵 Custom / External (<span id="countCustom">0</span>)</button>
+        <button class="btn btn-sm btn-secondary" id="chipPinned" onclick="setPlaylistFilter('pinned')">📌 Pinned (<span id="countPinned">0</span>)</button>
+      </div>
+
+      <!-- Playlists List -->
+      <div id="playlistsList" class="item-list">
+        <!-- Populated via JS -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================================================================= -->
+  <!-- MODALS                                                                  -->
+  <!-- ======================================================================= -->
+
+  <!-- Book Assign / Play Modal -->
+  <div class="modal-overlay" id="bookModal" style="display: none;">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 style="font-size: 16px; margin: 0;" id="bookModalTitle">Select Delivery & Play</h3>
+      </div>
+      <div style="display: flex; gap: 14px; margin: 14px 0;">
+        <div style="width: 100px; height: 100px; border-radius: 8px; overflow: hidden; background: var(--bg-surface-elevated); flex-shrink: 0;">
+          <img id="bookModalThumb" src="" style="width: 100%; height: 100%; object-fit: cover;">
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <h4 id="bookModalBookTitle" style="font-size: 14px; margin-bottom: 4px;"></h4>
+          <p id="bookModalAuthor" class="text-secondary" style="font-size: 12px; margin-bottom: 4px;"></p>
+          <span id="bookModalSeries" class="badge badge-info" style="font-size: 10px; display: none;"></span>
+        </div>
+      </div>
+
+      <!-- Delivery Mode Selector Dropdown -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label for="bookModalModeSelect" style="font-size: 12px; font-weight: 600;">Delivery Mode</label>
+        <select id="bookModalModeSelect" class="form-control">
+          <option value="default">⚙️ Profile Default (<span id="optProfileDefaultMode">Streaming</span>)</option>
+          <option value="streaming">⚡ Streaming (Instant Playback)</option>
+          <option value="offline">💾 Offline (Cache Audio to Yoto Player)</option>
+        </select>
+        <small class="text-secondary" style="font-size: 10px; display: block; margin-top: 4px;">
+          Offline delivery transcodes and uploads tracks to Yoto Cloud so the player downloads and plays anywhere.
+        </small>
+      </div>
+
+      <div class="form-actions" style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn btn-primary" style="width: 100%;" onclick="executeBookPlay()">▶️ Play Now on Child Player</button>
+        <button class="btn btn-secondary" style="width: 100%;" onclick="openLinkToCardModal()">💳 Assign to Specific Card Slot...</button>
+        <button type="button" class="btn btn-secondary" style="width: 100%;" onclick="closeBookModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link to Card Modal -->
+  <div class="modal-overlay" id="linkCardModal" style="display: none;">
+    <div class="modal-card" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 style="font-size: 15px; margin: 0;">Select Target Card Slot</h3>
+      </div>
+      <div class="form-group" style="margin: 14px 0;">
+        <label for="targetSlotSelect" style="font-size: 12px;">Choose Card Slot:</label>
+        <select id="targetSlotSelect" class="form-control">
+          <!-- Populated via JS -->
+        </select>
+      </div>
+      <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-secondary" onclick="closeLinkCardModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="executeAssignToSlot()">Save Assignment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Card Slot Modal -->
+  <div class="modal-overlay" id="addCardModal" style="display: none;">
+    <div class="modal-card" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 style="font-size: 15px; margin: 0;">Add Physical / Fleet Card</h3>
+      </div>
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="newSlotId" style="font-size: 12px;">Slot ID / Nickname</label>
+        <input type="text" id="newSlotId" class="form-control" placeholder="e.g. dino_card">
+      </div>
+      <div class="form-group" style="margin-top: 8px;">
+        <label for="newSlotTitle" style="font-size: 12px;">Label / Description</label>
+        <input type="text" id="newSlotTitle" class="form-control" placeholder="e.g. Blue Dinosaur NFC Card">
+      </div>
+      <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeAddCardModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="executeCreateCardSlot()">Create Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav">
+    <div class="nav-item active" onclick="switchTab('player')" id="navTabPlayer">
+      <span class="nav-icon">▶️</span>
+      <span>Player</span>
+    </div>
+    <div class="nav-item" onclick="switchTab('library')" id="navTabLibrary">
+      <span class="nav-icon">📚</span>
+      <span>Library</span>
+    </div>
+    <div class="nav-item" onclick="switchTab('cards')" id="navTabCards">
+      <span class="nav-icon">💳</span>
+      <span>Cards</span>
+    </div>
+    <div class="nav-item" onclick="switchTab('playlists')" id="navTabPlaylists">
+      <span class="nav-icon">☁️</span>
+      <span>Playlists</span>
+    </div>
+  </nav>
+
+  <!-- Portal Frontend Logic -->
+  <script src="/static/js/portal.js"></script>
+</body>
+</html>

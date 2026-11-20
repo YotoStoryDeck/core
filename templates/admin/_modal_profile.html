@@ -143,6 +143,40 @@
             </span>
           </div>
         </div>
+
+        <!-- Audio Delivery & Offline Caching Preferences -->
+        <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 style="font-size: 13px; color: #10b981; margin: 0 0 8px 0;">📻 Yoto Card & Audio Delivery Preferences</h4>
+          <p class="text-secondary" style="font-size: 11px; margin-bottom: 12px; line-height: 1.4;">
+            Configure default playback mode for new books selected for this child, their assigned primary ABS card, and offline cache retention.
+          </p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="profileDefaultPlaybackMode" style="font-size: 11px; font-weight: 600;">Default Playback Mode</label>
+              <select id="profileDefaultPlaybackMode" class="form-control">
+                <option value="streaming">Streaming (Instant Playback)</option>
+                <option value="offline">Offline (Cache Audio to Yoto Player)</option>
+              </select>
+              <small class="text-secondary" style="font-size: 10px; display: block; margin-top: 3px;">
+                Controls delivery mode when selecting a new book unless overridden in Parent Portal.
+              </small>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="profileOfflineRetentionLimit" style="font-size: 11px; font-weight: 600;">Offline Cache Retention Limit</label>
+              <input type="number" id="profileOfflineRetentionLimit" class="form-control" min="1" max="20" value="8">
+              <small class="text-secondary" style="font-size: 10px; display: block; margin-top: 3px;">
+                Number of recently played offline books preserved before automated LRU pruning.
+              </small>
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 8px; margin-bottom: 0;">
+            <label for="profilePrimaryCardId" style="font-size: 11px;">Primary Physical / MYO Card ID <span class="text-secondary">(Optional)</span></label>
+            <input type="text" id="profilePrimaryCardId" class="form-control" placeholder="e.g. 7416358f-2dfc-4573-8ab5-fcb11a7f05f8">
+            <small class="text-secondary" style="font-size: 10px; display: block; margin-top: 3px;">
+              Pairs this child's dedicated physical card. Repointing books updates this card immediately without re-pairing.
+            </small>
+          </div>
+        </div>
         <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
           <button type="button" class="btn btn-secondary" onclick="closeProfileModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Profile</button>

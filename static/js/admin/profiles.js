@@ -59,7 +59,11 @@ function renderProfileCards() {
         <p class="text-secondary"><strong>Custom Yoto Cards:</strong> ${allowedCount} allowed, ${excludedCount} excluded</p>
       </div>
       <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-subtle);">
-        <p class="text-secondary" style="font-size: 11px; margin-bottom: 8px;"><strong>Rotation:</strong> ${p.catalog_rotation_limit || 80} cards (rolls at ${p.catalog_rotation_hour ?? 3}:00${p.hide_physical ? ', physical hidden' : ''})</p>
+        <p class="text-secondary" style="font-size: 11px; margin-bottom: 4px;"><strong>Rotation:</strong> ${p.catalog_rotation_limit || 80} cards (rolls at ${p.catalog_rotation_hour ?? 3}:00${p.hide_physical ? ', physical hidden' : ''})</p>
+        <p class="text-secondary" style="font-size: 11px; margin-bottom: 8px;">
+          <strong>Audio Delivery:</strong> ${p.default_playback_mode === 'offline' ? '<span class="badge badge-warning" style="font-size: 10px;">Offline (Yoto Cache)</span>' : '<span class="badge badge-info" style="font-size: 10px;">Streaming</span>'}
+          <span style="font-size: 10px; color: var(--text-muted);">(Retain: ${p.offline_retention_limit || 8} recent books)</span>
+        </p>
       </div>
       <div style="margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px;">
         <button class="btn btn-secondary btn-sm" onclick="editProfile('${escapeHtml(p.id)}')">Edit</button>
@@ -357,6 +361,14 @@ async function openProfileModal(existingId = null) {
   if (kioskLimitInput) kioskLimitInput.value = (prof && prof.kiosk_catalog_limit !== undefined) ? prof.kiosk_catalog_limit : 0;
   if (rotHourInput) rotHourInput.value = (prof && prof.catalog_rotation_hour !== undefined) ? prof.catalog_rotation_hour : 3;
   if (hidePhysCheck) hidePhysCheck.checked = !!(prof && prof.hide_physical);
+
+  // Audio Delivery & Offline Caching Preferences
+  const defaultModeInput = document.getElementById("profileDefaultPlaybackMode");
+  const retentionLimitInput = document.getElementById("profileOfflineRetentionLimit");
+  const primaryCardInput = document.getElementById("profilePrimaryCardId");
+  if (defaultModeInput) defaultModeInput.value = (prof && prof.default_playback_mode) ? prof.default_playback_mode : "streaming";
+  if (retentionLimitInput) retentionLimitInput.value = (prof && prof.offline_retention_limit) ? prof.offline_retention_limit : 8;
+  if (primaryCardInput) primaryCardInput.value = (prof && prof.primary_card_id) ? prof.primary_card_id : "";
   nameInput.value = prof ? prof.display_name : "";
   idInput.value = existingId || "";
   idInput.readOnly = !!existingId;
@@ -529,6 +541,10 @@ async function saveProfileForm(e) {
   const hidePhys = document.getElementById("profileHidePhysical").checked;
 
   const prof = currentProfiles[id];
+  const defaultPlaybackMode = document.getElementById("profileDefaultPlaybackMode") ? document.getElementById("profileDefaultPlaybackMode").value : "streaming";
+  const offlineRetentionLimit = document.getElementById("profileOfflineRetentionLimit") ? (parseInt(document.getElementById("profileOfflineRetentionLimit").value, 10) || 8) : 8;
+  const primaryCardId = document.getElementById("profilePrimaryCardId") ? document.getElementById("profilePrimaryCardId").value.trim() : "";
+
   const payload = {
     display_name: name,
     abs_username: absUsername,
@@ -543,6 +559,9 @@ async function saveProfileForm(e) {
     catalog_rotation_limit: rotLimit,
     kiosk_catalog_limit: kioskLimit,
     catalog_rotation_hour: rotHour,
+    default_playback_mode: defaultPlaybackMode,
+    offline_retention_limit: offlineRetentionLimit,
+    primary_card_id: primaryCardId,
     yoto: prof ? prof.yoto : { inherit_shared: true, allowed_card_ids: [], excluded_card_ids: [], match_titles: [] }
   };
 
