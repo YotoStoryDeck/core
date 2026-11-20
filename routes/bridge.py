@@ -183,6 +183,36 @@ def list_cards():
         if job:
             s["transcode"] = job
 
+    # If bridge is configured, merge external bridge cards to ensure 100% parity
+    creds = database.get_api_credentials()
+    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
+        b_url = creds["yoto_bridge_url"].rstrip("/")
+        bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+        try:
+            res = requests.get(f"{b_url}/api/cards", headers=bridge_headers, timeout=5)
+            if res.status_code == 200:
+                bridge_cards = res.json()
+                local_slot_ids = {s.get("slot_id") or s.get("slot") for s in slots}
+                for bc in bridge_cards:
+                    s_id = bc.get("slot_id") or bc.get("slot")
+                    if s_id and s_id not in local_slot_ids:
+                        slots.append({
+                            "slot_id": s_id,
+                            "slot": s_id,
+                            "abs_item_id": bc.get("item_id", ""),
+                            "item_id": bc.get("item_id", ""),
+                            "title": bc.get("title", ""),
+                            "yoto_card_id": bc.get("yoto_card_id", ""),
+                            "yoto_title": bc.get("yoto_title", ""),
+                            "stream_url": bc.get("stream_url", ""),
+                            "mode": bc.get("offline", {}).get("mode", "offline") if bc.get("offline") else "streaming",
+                            "offline": bc.get("offline"),
+                            "is_pinned": 1,
+                            "is_protected": 1
+                        })
+        except Exception as be:
+            logger.debug("Bridge cards fetch notice: %s", be)
+
     return jsonify(slots)
 
 

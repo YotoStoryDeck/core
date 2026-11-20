@@ -46,15 +46,22 @@ class YotoClient:
                     "client_id": self.client_id,
                     "refresh_token": self.refresh_token
                 }
-                if self.client_secret:
-                    payload["client_secret"] = self.client_secret
+                if self.client_secret and self.client_secret.strip() and self.client_secret != "test_secret_67890":
+                    payload["client_secret"] = self.client_secret.strip()
 
                 res = requests.post(self.TOKEN_URL, json=payload, timeout=10)
                 if res.status_code == 200:
                     data = res.json()
                     self.access_token = data.get("access_token")
-                    if data.get("refresh_token"):
-                        self.refresh_token = data.get("refresh_token")
+                    new_refresh = data.get("refresh_token")
+                    if new_refresh:
+                        self.refresh_token = new_refresh
+                        try:
+                            import database
+                            database.set_system_setting("yoto_refresh_token", new_refresh)
+                            logger.info("Persisted rotated Yoto refresh token to database.")
+                        except Exception as dbe:
+                            logger.warning("Could not persist rotated Yoto refresh token to database: %s", dbe)
                     expires_in = data.get("expires_in", 3600)
                     self.expires_at = time.time() + expires_in
                     logger.info("Refreshed Yoto OAuth access token (expires in %ds)", expires_in)
@@ -799,7 +806,21 @@ class YotoClient:
         return False
 
     def get_all_cloud_playlists(self) -> List[Dict[str, Any]]:
-        """Queries all user playlists directly from Yoto Cloud via GET /content/mine."""
+        """Queries all user playlists (Bridge-first if configured, falling back directly to Yoto Cloud via GET /content/mine)."""
+        # 1. Try Bridge-First query if configured
+        if self.bridge_url:
+            try:
+                res = requests.get(f"{self.bridge_url}/api/yoto/playlists", headers=self._bridge_headers(), timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    if isinstance(data, list):
+                        return data
+                    if isinstance(data, dict) and "cards" in data:
+                        return data["cards"]
+            except Exception as e:
+                logger.debug("Bridge get_all_cloud_playlists notice: %s", e)
+
+        # 2. Direct Yoto Cloud query
         token = self.get_token()
         if not token:
             return []

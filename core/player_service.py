@@ -32,6 +32,46 @@ _cached_players_map: Dict[str, Dict[str, Any]] = {}
 _cached_players_ts: float = 0.0
 _CACHE_TTL_SECONDS: float = 2.0
 
+# Cached card slots inventory to correlate active playback with cards/playlists
+_cards_cache: List[Dict[str, Any]] = []
+_cards_cache_ts: float = 0.0
+
+
+def get_cached_cards_inventory(bridge_url: str = "", bridge_headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    """Retrieves all registered card slots from local database and external bridge with a 15s cache."""
+    global _cards_cache, _cards_cache_ts
+    now = time.time()
+    if _cards_cache and (now - _cards_cache_ts < 15.0):
+        return _cards_cache
+
+    cards: List[Dict[str, Any]] = []
+    # 1. Local database bridge_slots
+    try:
+        from core.bridge_manager import get_bridge_manager
+        mgr = get_bridge_manager()
+        cards = mgr.list_slots()
+    except Exception as e:
+        logger.debug("Local bridge slots lookup notice: %s", e)
+
+    # 2. External bridge /api/cards if bridge_url configured
+    if bridge_url:
+        try:
+            r = _http_session.get(f"{bridge_url}/api/cards", headers=bridge_headers or {}, timeout=4)
+            if r.status_code == 200:
+                b_cards = r.json()
+                if isinstance(b_cards, list):
+                    local_slots = {s.get("slot_id") or s.get("slot") for s in cards}
+                    for bc in b_cards:
+                        sid = bc.get("slot") or bc.get("slot_id")
+                        if sid and sid not in local_slots:
+                            cards.append(bc)
+        except Exception as e:
+            logger.debug("Bridge /api/cards inventory lookup notice: %s", e)
+
+    _cards_cache = cards
+    _cards_cache_ts = now
+    return cards
+
 
 def verify_player_home_presence(device_id: str, online: bool) -> bool:
     """
@@ -136,7 +176,52 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                     if not cover_url:
                         cover_url = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png"
 
-                    has_card = bool(is_active_media and (item_id or now_playing))
+                    # Correlate active playback with card inventory & attached playlists
+                    cards_inv = get_cached_cards_inventory(bridge_url, bridge_headers)
+                    matched_card = None
+                    if is_active_media:
+                        for c in cards_inv:
+                            c_item = c.get("item_id") or c.get("abs_item_id")
+                            c_card = c.get("yoto_card_id") or c.get("card_id")
+                            c_title = (c.get("title") or c.get("yoto_title") or "").strip().lower()
+                            if (item_id and (c_item == item_id or c_card == item_id)) or (now_playing and c_title and c_title == now_playing.strip().lower()):
+                                matched_card = c
+                                break
+
+                    card_id = None
+                    slot_id = None
+                    card_title = None
+                    has_attached_card = False
+                    has_attached_playlist = False
+                    playback_mode = "idle"
+
+                    if is_active_media:
+                        if matched_card:
+                            card_id = matched_card.get("yoto_card_id") or matched_card.get("card_id") or matched_card.get("slot")
+                            slot_id = matched_card.get("slot") or matched_card.get("slot_id")
+                            card_title = matched_card.get("title") or matched_card.get("yoto_title") or now_playing
+                            has_attached_card = True
+                            has_attached_playlist = bool(card_id or slot_id)
+                            off = matched_card.get("offline") or {}
+                            if off and off.get("status") == "ready":
+                                playback_mode = "offline"
+                            else:
+                                playback_mode = matched_card.get("mode") or "streaming"
+                        else:
+                            # Check if retail Yoto card or raw cardId
+                            db_item = database.get_media_item_by_id(item_id) if item_id else None
+                            if (db_item and db_item.get("type") == "yoto") or (item_id and len(item_id) == 5 and item_id.isalnum()):
+                                card_id = item_id
+                                card_title = now_playing
+                                has_attached_card = True
+                                has_attached_playlist = False
+                                playback_mode = "retail"
+                            else:
+                                has_attached_card = bool(item_id or now_playing)
+                                has_attached_playlist = False
+                                playback_mode = "streaming"
+
+                    has_card = bool(is_active_media and (has_attached_card or item_id or now_playing))
                     is_online = bool(d.get("online"))
                     is_home = verify_player_home_presence(did, is_online)
                     vol = d.get("volume") if d.get("volume") is not None else 50
@@ -160,6 +245,12 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                         "coverUrl": cover_url,
                         "coverImageUrl": cover_url,
                         "item_id": item_id,
+                        "card_id": card_id,
+                        "slot_id": slot_id,
+                        "card_title": card_title or now_playing,
+                        "has_attached_card": has_attached_card,
+                        "has_attached_playlist": has_attached_playlist,
+                        "playback_mode": playback_mode,
                         "position": pos,
                         "duration": dur,
                         "volume": vol,
@@ -243,6 +334,12 @@ def get_player_status(device_id: str) -> Dict[str, Any]:
         "coverUrl": "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png",
         "coverImageUrl": "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png",
         "item_id": None,
+        "card_id": None,
+        "slot_id": None,
+        "card_title": None,
+        "has_attached_card": False,
+        "has_attached_playlist": False,
+        "playback_mode": "idle",
         "position": 0,
         "duration": 0,
         "volume": 50,
@@ -276,12 +373,8 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
                 return False, {"ok": False, "error": "volume is required"}, 400
             vol_val = max(0, min(100, int(volume)))
             # Parent volume ceiling check & clamp
-            now_ts = time.time()
-            cached_vc = _player_vol_cache.get(device_id)
-            if cached_vc and (now_ts - cached_vc.get("cached_at", 0) < 30):
-                max_limit = cached_vc.get("max", 100)
-            else:
-                max_limit = 100
+            player_st = get_player_status(device_id)
+            max_limit = player_st.get("volume_max", 100) or 100
             if vol_val > max_limit:
                 vol_val = max_limit
 
@@ -291,14 +384,14 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
                     if r.status_code == 404:
                         r = _http_session.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=3)
                     if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "volume": vol_val}, 200
+                        return True, {"ok": True, "device_id": device_id, "volume": vol_val, "volume_max": max_limit}, 200
                 except Exception as be:
                     logger.warning("Bridge volume relay error: %s", be)
 
             if clients.yoto_client:
                 ok = clients.yoto_client.set_volume(device_id, vol_val)
                 if ok:
-                    return True, {"ok": True, "device_id": device_id, "volume": vol_val}, 200
+                    return True, {"ok": True, "device_id": device_id, "volume": vol_val, "volume_max": max_limit}, 200
                 return False, {"ok": False, "error": "Yoto Cloud volume command failed"}, 502
 
         # 2. Transport: pause, resume, stop

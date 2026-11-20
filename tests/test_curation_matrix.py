@@ -785,32 +785,39 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
             sess["username"] = "admin"
             sess["role"] = "admin"
 
-        # 1. Update Yoto credentials via PUT
-        res_put = self.client.put("/api/admin/settings/credentials", json={
-            "yoto_client_id": "test_client_id_12345",
-            "yoto_client_secret": "test_secret_67890",
-            "yoto_refresh_token": "test_refresh_abcde"
-        })
-        self.assertEqual(res_put.status_code, 200)
-        self.assertTrue(res_put.get_json().get("ok"))
+        # Backup original credentials so tests never overwrite user's live DB credentials
+        orig_creds = database.get_api_credentials()
+        try:
+            # 1. Update Yoto credentials via PUT
+            res_put = self.client.put("/api/admin/settings/credentials", json={
+                "yoto_client_id": "test_client_id_12345",
+                "yoto_client_secret": "test_secret_67890",
+                "yoto_refresh_token": "test_refresh_abcde"
+            })
+            self.assertEqual(res_put.status_code, 200)
+            self.assertTrue(res_put.get_json().get("ok"))
 
-        # 2. Verify GET masks sensitive credentials
-        res_get = self.client.get("/api/admin/settings/credentials")
-        self.assertEqual(res_get.status_code, 200)
-        data = res_get.get_json()
-        self.assertEqual(data.get("yoto_client_id"), "test_client_id_12345")
-        self.assertIn("••••", data.get("yoto_refresh_token", ""))
+            # 2. Verify GET masks sensitive credentials
+            res_get = self.client.get("/api/admin/settings/credentials")
+            self.assertEqual(res_get.status_code, 200)
+            data = res_get.get_json()
+            self.assertEqual(data.get("yoto_client_id"), "test_client_id_12345")
+            self.assertIn("••••", data.get("yoto_refresh_token", ""))
 
-        # 3. Test OAuth PKCE start endpoint
-        res_oauth = self.client.post("/api/admin/yoto/oauth/start", json={
-            "client_id": "test_client_id_12345",
-            "redirect_uri": "http://127.0.0.1:8787/callback"
-        })
-        self.assertEqual(res_oauth.status_code, 200)
-        oauth_data = res_oauth.get_json()
-        self.assertTrue(oauth_data.get("ok"))
-        self.assertIn("https://login.yotoplay.com/authorize", oauth_data.get("auth_url", ""))
-        self.assertIn("code_challenge=", oauth_data.get("auth_url", ""))
+            # 3. Test OAuth PKCE start endpoint
+            res_oauth = self.client.post("/api/admin/yoto/oauth/start", json={
+                "client_id": "test_client_id_12345",
+                "redirect_uri": "http://127.0.0.1:8787/callback"
+            })
+            self.assertEqual(res_oauth.status_code, 200)
+            oauth_data = res_oauth.get_json()
+            self.assertTrue(oauth_data.get("ok"))
+            self.assertIn("https://login.yotoplay.com/authorize", oauth_data.get("auth_url", ""))
+            self.assertIn("code_challenge=", oauth_data.get("auth_url", ""))
+        finally:
+            # Restore original credentials and hot-reload client singletons
+            database.update_api_credentials(orig_creds)
+            clients.reload_clients()
 
 if __name__ == "__main__":
     unittest.main()

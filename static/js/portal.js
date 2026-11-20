@@ -11,6 +11,7 @@ let cardSlots = [];
 let cloudPlaylists = [];
 let activeBook = null;
 let currentPlaylistFilter = "all";
+let currentVolumeMax = 100;
 let pollInterval = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -159,6 +160,9 @@ async function pollPlayerStatus() {
     const titleEl = document.getElementById("playerTitle");
     const subEl = document.getElementById("playerSubtitle");
     const coverEl = document.getElementById("playerCoverImg");
+    const modeBadge = document.getElementById("playerModeBadge");
+    const attachedCardTag = document.getElementById("playerAttachedCardTag");
+    const attachedCardText = document.getElementById("playerAttachedCardText");
 
     const hasActiveMedia = data && (data.is_playing || data.has_card || (data.status === "playing" || data.status === "paused"));
 
@@ -172,6 +176,37 @@ async function pollPlayerStatus() {
       if (coverEl && cover) {
         coverEl.src = cover;
       }
+
+      // Update Mode Badge & Attached Playlist Tag
+      if (data.has_attached_playlist || data.card_id || data.playback_mode === "offline") {
+        if (modeBadge) {
+          modeBadge.innerText = data.playback_mode === "offline" ? "💾 Attached Offline" : "💾 Attached Playlist";
+          modeBadge.style.borderColor = "var(--accent-yoto)";
+          modeBadge.style.color = "var(--accent-yoto)";
+        }
+        if (attachedCardTag && attachedCardText) {
+          attachedCardTag.style.display = "block";
+          const cardRef = data.card_id ? `Card: ${data.card_id}` : (data.slot_id ? `Slot: ${data.slot_id}` : "MYO Card");
+          attachedCardText.innerText = `💳 Attached Playlist (${cardRef})`;
+        }
+      } else if (data.playback_mode === "retail") {
+        if (modeBadge) {
+          modeBadge.innerText = "💿 Retail Card";
+          modeBadge.style.borderColor = "var(--accent-info)";
+          modeBadge.style.color = "var(--accent-info)";
+        }
+        if (attachedCardTag && attachedCardText) {
+          attachedCardTag.style.display = "block";
+          attachedCardText.innerText = `💿 Yoto Retail Card (${data.card_id || data.item_id})`;
+        }
+      } else {
+        if (modeBadge) {
+          modeBadge.innerText = "⚡ Streaming";
+          modeBadge.style.borderColor = "var(--border-subtle)";
+          modeBadge.style.color = "var(--text-primary)";
+        }
+        if (attachedCardTag) attachedCardTag.style.display = "none";
+      }
     } else if (data) {
       if (titleEl) titleEl.innerText = "No Active Playback";
       if (subEl) {
@@ -179,6 +214,12 @@ async function pollPlayerStatus() {
       }
       if (coverEl) {
         coverEl.src = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png";
+      }
+      if (attachedCardTag) attachedCardTag.style.display = "none";
+      if (modeBadge) {
+        modeBadge.innerText = "⚡ Streaming";
+        modeBadge.style.borderColor = "var(--border-subtle)";
+        modeBadge.style.color = "var(--text-primary)";
       }
     }
 
@@ -198,11 +239,19 @@ async function pollPlayerStatus() {
       if (elRem) elRem.innerText = `-${formatSeconds(Math.max(0, currentDuration - currentPosition))}`;
     }
 
+    // Volume with Ceiling Clamp Enforcement
+    currentVolumeMax = (data && data.volume_max != null) ? parseInt(data.volume_max, 10) : 100;
     if (data && data.volume !== undefined) {
       const volSlider = document.getElementById("playerVolumeSlider");
-      if (volSlider) volSlider.value = data.volume;
+      if (volSlider) {
+        volSlider.max = currentVolumeMax;
+        volSlider.value = Math.min(currentVolumeMax, data.volume);
+      }
       const volLabel = document.getElementById("playerVolumeLabel");
-      if (volLabel) volLabel.innerText = `${data.volume}%`;
+      if (volLabel) {
+        const val = volSlider ? volSlider.value : data.volume;
+        volLabel.innerText = currentVolumeMax < 100 ? `${val}% (Limit: ${currentVolumeMax}%)` : `${val}%`;
+      }
     }
   } catch (err) {
     // Poll notice
@@ -228,17 +277,43 @@ function togglePlayPause() {
 }
 
 function onVolumeInput(val) {
-  document.getElementById("playerVolumeLabel").innerText = `${val}%`;
+  let v = parseInt(val, 10);
+  if (v > currentVolumeMax) {
+    v = currentVolumeMax;
+    const slider = document.getElementById("playerVolumeSlider");
+    if (slider) slider.value = v;
+  }
+  const label = document.getElementById("playerVolumeLabel");
+  if (label) {
+    label.innerText = currentVolumeMax < 100 ? `${v}% (Limit: ${currentVolumeMax}%)` : `${v}%`;
+  }
 }
 
 async function onVolumeChange(val) {
   if (!activeDeviceId) return;
+  let v = parseInt(val, 10);
+  if (v > currentVolumeMax) {
+    v = currentVolumeMax;
+    const slider = document.getElementById("playerVolumeSlider");
+    if (slider) slider.value = v;
+  }
   try {
-    await fetch("/api/player/transport", {
+    const res = await fetch("/api/player/transport", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_id: activeDeviceId, action: "volume", volume: parseInt(val, 10) })
+      body: JSON.stringify({ device_id: activeDeviceId, action: "volume", volume: v })
     });
+    if (res.ok) {
+      const resp = await res.json();
+      if (resp.volume !== undefined) {
+        const slider = document.getElementById("playerVolumeSlider");
+        if (slider) slider.value = resp.volume;
+        const label = document.getElementById("playerVolumeLabel");
+        if (label) {
+          label.innerText = currentVolumeMax < 100 ? `${resp.volume}% (Limit: ${currentVolumeMax}%)` : `${resp.volume}%`;
+        }
+      }
+    }
   } catch (err) {
     console.error("Volume error:", err);
   }
