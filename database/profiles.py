@@ -44,6 +44,9 @@ def get_all_profiles() -> Dict[str, Any]:
                 "catalog_rotation_limit": int(r["catalog_rotation_limit"]) if "catalog_rotation_limit" in r.keys() and r["catalog_rotation_limit"] is not None else 60,
                 "kiosk_catalog_limit": int(r["kiosk_catalog_limit"]) if "kiosk_catalog_limit" in r.keys() and r["kiosk_catalog_limit"] is not None else 0,
                 "catalog_rotation_hour": int(r["catalog_rotation_hour"]) if "catalog_rotation_hour" in r.keys() and r["catalog_rotation_hour"] is not None else 3,
+                "default_playback_mode": r["default_playback_mode"] if "default_playback_mode" in r.keys() and r["default_playback_mode"] else "streaming",
+                "primary_card_id": r["primary_card_id"] if "primary_card_id" in r.keys() else "",
+                "offline_retention_limit": int(r["offline_retention_limit"]) if "offline_retention_limit" in r.keys() and r["offline_retention_limit"] is not None else 8,
                 "yoto": {
                     "inherit_shared": bool(r["inherit_shared"]),
                     "allowed_card_ids": allowed,
@@ -77,11 +80,16 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
             rot_lim = int(data.get("catalog_rotation_limit", 60) if data.get("catalog_rotation_limit") is not None else 60)
             kiosk_lim = int(data.get("kiosk_catalog_limit", 0) if data.get("kiosk_catalog_limit") is not None else 0)
             rot_hr = int(data.get("catalog_rotation_hour", 3) if data.get("catalog_rotation_hour") is not None else 3)
+            default_mode = str(data.get("default_playback_mode", "streaming") or "streaming").lower()
+            if default_mode not in ("streaming", "offline"):
+                default_mode = "streaming"
+            primary_card = str(data.get("primary_card_id", "") or "").strip()
+            retention_lim = int(data.get("offline_retention_limit", 8) if data.get("offline_retention_limit") is not None else 8)
             yoto = data.get("yoto", {})
             inherit = 1 if yoto.get("inherit_shared", True) else 0
             conn.execute("""
-            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, hide_physical, catalog_rotation_limit, kiosk_catalog_limit, catalog_rotation_hour, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO profiles (id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit_shared, hide_physical, catalog_rotation_limit, kiosk_catalog_limit, catalog_rotation_hour, default_playback_mode, primary_card_id, offline_retention_limit, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 display_name = excluded.display_name,
                 abs_username = excluded.abs_username,
@@ -98,8 +106,11 @@ def upsert_profile(prof_id: str, data: Dict[str, Any]) -> bool:
                 catalog_rotation_limit = excluded.catalog_rotation_limit,
                 kiosk_catalog_limit = excluded.kiosk_catalog_limit,
                 catalog_rotation_hour = excluded.catalog_rotation_hour,
+                default_playback_mode = excluded.default_playback_mode,
+                primary_card_id = excluded.primary_card_id,
+                offline_retention_limit = excluded.offline_retention_limit,
                 updated_at = CURRENT_TIMESTAMP;
-            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit, hide_phys, rot_lim, kiosk_lim, rot_hr))
+            """, (prof_id, display_name, abs_username, abs_api_key, abs_library_id, abs_tag, default_player_id, player_ids, avatar_url, avatar_color, avatar_initial, inherit, hide_phys, rot_lim, kiosk_lim, rot_hr, default_mode, primary_card, retention_lim))
             # Reset & rebuild permissions
             conn.execute("DELETE FROM profile_media_permissions WHERE profile_id = ?;", (prof_id,))
             for card_id in yoto.get("allowed_card_ids", []):

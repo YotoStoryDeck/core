@@ -94,3 +94,74 @@ def list_admin_users() -> List[Dict[str, Any]]:
 # ============================================================================
 # Profiles & Children DAO
 # ============================================================================
+
+def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an admin or member user by user_id."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, display_name, role, sso_provider, last_login, created_at FROM admin_users WHERE id = ?;", (user_id,))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+        return None
+    finally:
+        conn.close()
+
+def update_user_role(user_id: str, role: str) -> bool:
+    """Updates the role for an admin user ('admin' or 'member')."""
+    if role not in ("admin", "member"):
+        raise ValueError("Invalid role; must be 'admin' or 'member'")
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE admin_users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (role, user_id))
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+def update_user_password(user_id: str, new_password: str) -> bool:
+    """Updates password for a user record with salted hash."""
+    if not new_password or len(new_password) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+    pw_hash, salt = hash_password(new_password)
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE admin_users SET password_hash = ?, salt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (pw_hash, salt, user_id))
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+def update_user_display_name(user_id: str, display_name: str) -> bool:
+    """Updates display name for a user record."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE admin_users SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (display_name, user_id))
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+def delete_user(user_id: str) -> bool:
+    """Deletes a user account (fails if it's the last remaining admin)."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("SELECT role FROM admin_users WHERE id = ?;", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            if row["role"] == "admin":
+                cur.execute("SELECT COUNT(*) FROM admin_users WHERE role = 'admin';")
+                admin_count = cur.fetchone()[0]
+                if admin_count <= 1:
+                    raise ValueError("Cannot delete the last remaining administrator account.")
+            cur.execute("DELETE FROM admin_users WHERE id = ?;", (user_id,))
+            return cur.rowcount > 0
+    finally:
+        conn.close()

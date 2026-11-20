@@ -9,7 +9,7 @@ import json
 import time
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
-from flask import request, jsonify, session
+from flask import request, jsonify, session, redirect
 import database
 from core.config import TRUSTED_PROXIES, logger
 
@@ -89,6 +89,25 @@ def decode_and_verify_device_jwt(token: str, secret: str) -> Optional[Dict[str, 
 # Admin User & Master API Key Resolution
 # ============================================================================
 
+
+def is_trusted_lan_ip(remote_ip: str) -> bool:
+    """Returns True if the client IP belongs to RFC1918 private subnets or loopback."""
+    if not remote_ip:
+        return False
+    try:
+        ip = ipaddress.ip_address(remote_ip.strip())
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+
+def get_effective_client_ip() -> str:
+    """Extracts real client IP considering reverse proxy headers."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "127.0.0.1"
+
 def is_request_from_trusted_proxy() -> bool:
     """Checks whether the direct remote IP matches TRUSTED_PROXIES."""
     remote_addr = request.remote_addr or "127.0.0.1"
@@ -102,12 +121,14 @@ def is_request_from_trusted_proxy() -> bool:
     return False
 
 
-def get_current_admin_user() -> Optional[Dict[str, Any]]:
+def get_current_user() -> Optional[Dict[str, Any]]:
     """
-    Resolves active administrator via:
-    1. Master API Key (X-Api-Key, Bearer token, or ?apikey= query param on GET)
-    2. Trusted reverse-proxy SSO headers (Authentik, Cloudflare Access)
-    3. Flask local session cookie
+    Retrieves the currently authenticated user identity.
+    Checks in order:
+    1. Master API Key (Role: admin)
+    2. Reverse-Proxy SSO Headers (Role: looked up in DB or defaults to admin)
+    3. Authenticated Session Cookie (Role: member or admin)
+    4. Trusted LAN / Sitter Access Bypass (Role: member, is_lan_guest: True)
     """
     # 1. Master API Key Check
     req_key = request.headers.get("X-Api-Key") or request.headers.get("X-API-KEY")
@@ -115,7 +136,6 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
         auth_hdr = request.headers.get("Authorization", "")
         if auth_hdr.startswith("Bearer "):
             bearer_val = auth_hdr[7:].strip()
-            # If length is 32 hex chars, it could be the master key
             if len(bearer_val) == 32:
                 req_key = bearer_val
 
@@ -130,6 +150,7 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "username": "api_client",
                 "display_name": "Master API Key",
                 "role": "admin",
+                "is_lan_guest": False,
                 "auth_type": "api_key"
             }
 
@@ -148,7 +169,8 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                     "id": user["id"],
                     "username": user["username"],
                     "display_name": user["display_name"] or user["username"],
-                    "role": user["role"],
+                    "role": user.get("role", "admin"),
+                    "is_lan_guest": False,
                     "auth_type": "sso"
                 }
             return {
@@ -156,28 +178,167 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "username": sso_user.strip(),
                 "display_name": sso_user.strip(),
                 "role": "admin",
+                "is_lan_guest": False,
                 "auth_type": "sso"
             }
 
     # 3. Local Session Cookie
     user_id = session.get("user_id")
     if user_id:
+        db_user = database.get_user_by_id(user_id)
+        if db_user:
+            return {
+                "id": db_user["id"],
+                "username": db_user["username"],
+                "display_name": db_user["display_name"] or db_user["username"],
+                "role": db_user.get("role", "member"),
+                "is_lan_guest": False,
+                "auth_type": "session"
+            }
         return {
             "id": user_id,
-            "username": session.get("username", "admin"),
-            "display_name": session.get("display_name", "Admin"),
-            "role": session.get("role", "admin"),
+            "username": session.get("username", "user"),
+            "display_name": session.get("display_name", "User"),
+            "role": session.get("role", "member"),
+            "is_lan_guest": False,
             "auth_type": "session"
         }
+
+    # 4. Trusted LAN / Sitter Access Bypass
+    try:
+        settings = database.get_system_settings()
+        if settings.get("lan_sitter_access_enabled", True):
+            client_ip = get_effective_client_ip()
+            if is_trusted_lan_ip(client_ip):
+                return {
+                    "id": "lan_guest",
+                    "username": "lan_guest",
+                    "display_name": "LAN Guest (Sitter)",
+                    "role": "member",
+                    "is_lan_guest": True,
+                    "auth_type": "lan_guest"
+                }
+    except Exception as e:
+        logger.debug("LAN guest check notice: %s", e)
+
     return None
 
 
-def require_admin(func):
-    """Decorator guarding admin endpoints."""
+def get_current_admin_user() -> Optional[Dict[str, Any]]:
+    """
+    Resolves active administrator identity.
+    Strictly enforces role == 'admin' and NEVER allows LAN guest bypass.
+    """
+    # 1. Master API Key Check
+    req_key = request.headers.get("X-Api-Key") or request.headers.get("X-API-KEY")
+    if not req_key:
+        auth_hdr = request.headers.get("Authorization", "")
+        if auth_hdr.startswith("Bearer "):
+            bearer_val = auth_hdr[7:].strip()
+            if len(bearer_val) == 32:
+                req_key = bearer_val
+
+    if not req_key and request.method == "GET":
+        req_key = request.args.get("apikey") or request.args.get("api_key")
+
+    if req_key:
+        configured_master = database.get_master_api_key()
+        if configured_master and hmac.compare_digest(req_key.strip(), configured_master.strip()):
+            return {
+                "id": "master_api_key",
+                "username": "api_client",
+                "display_name": "Master API Key",
+                "role": "admin",
+                "is_lan_guest": False,
+                "auth_type": "api_key"
+            }
+
+    # 2. Reverse-Proxy SSO Headers (Authentik, Cloudflare Access)
+    if is_request_from_trusted_proxy():
+        sso_user = (
+            request.headers.get("X-authentik-username") or
+            request.headers.get("X-Forwarded-User") or
+            request.headers.get("Remote-User") or
+            request.headers.get("Cf-Access-Authenticated-User-Email")
+        )
+        if sso_user:
+            user = database.get_user_by_username(sso_user.strip())
+            if user and user.get("role") == "admin":
+                return {
+                    "id": user["id"],
+                    "username": user["username"],
+                    "display_name": user["display_name"] or user["username"],
+                    "role": "admin",
+                    "is_lan_guest": False,
+                    "auth_type": "sso"
+                }
+            elif not user:
+                return {
+                    "id": f"sso_{sso_user.strip()}",
+                    "username": sso_user.strip(),
+                    "display_name": sso_user.strip(),
+                    "role": "admin",
+                    "is_lan_guest": False,
+                    "auth_type": "sso"
+                }
+
+    # 3. Local Session Cookie (Must have role == 'admin')
+    user_id = session.get("user_id")
+    if user_id:
+        db_user = database.get_user_by_id(user_id)
+        if db_user and db_user.get("role") == "admin":
+            return {
+                "id": db_user["id"],
+                "username": db_user["username"],
+                "display_name": db_user["display_name"] or db_user["username"],
+                "role": "admin",
+                "is_lan_guest": False,
+                "auth_type": "session"
+            }
+        elif not db_user and session.get("role") == "admin":
+            return {
+                "id": user_id,
+                "username": session.get("username", "admin"),
+                "display_name": session.get("display_name", "Admin"),
+                "role": "admin",
+                "is_lan_guest": False,
+                "auth_type": "session"
+            }
+
+    return None
+
+
+def require_auth(func):
+    """
+    Decorator guarding member and parent portal endpoints.
+    Allows authenticated users (members/admins) OR local LAN guests.
+    """
     def wrapper(*args, **kwargs):
-        user = get_current_admin_user()
+        user = get_current_user()
         if not user:
-            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Authentication required"}), 401
+            return redirect(f"/admin/login?next={request.path}")
+        return func(*args, **kwargs)
+    wrapper.__name__ = func.__name__
+    return wrapper
+
+
+def require_admin(func):
+    """
+    Decorator strictly guarding admin endpoints.
+    Requires role == 'admin'; LAN guest bypass is NEVER permitted.
+    Returns 401 if unauthenticated or LAN guest, 403 if signed in as a non-admin member.
+    """
+    def wrapper(*args, **kwargs):
+        admin = get_current_admin_user()
+        if not admin:
+            if request.path.startswith("/api/"):
+                user = get_current_user()
+                if user and not user.get("is_lan_guest"):
+                    return jsonify({"ok": False, "error": "Admin privileges required"}), 403
+                return jsonify({"ok": False, "error": "Unauthorized"}), 401
+            return redirect(f"/admin/login?next={request.path}")
         return func(*args, **kwargs)
     wrapper.__name__ = func.__name__
     return wrapper

@@ -4,7 +4,7 @@ Administrator authentication and session management blueprint.
 
 from flask import Blueprint, request, jsonify, render_template, session
 import database
-from core.auth import get_current_admin_user
+from core.auth import get_current_admin_user, get_current_user, require_admin, require_auth
 
 admin_auth_bp = Blueprint("admin_auth", __name__)
 
@@ -78,3 +78,109 @@ def admin_auth_logout():
     """Terminates session."""
     session.clear()
     return jsonify({"ok": True, "message": "Signed out."})
+
+
+# ============================================================================
+# User Identity & RBAC User Management Endpoints
+# ============================================================================
+
+@admin_auth_bp.route("/api/auth/me", methods=["GET"])
+def auth_me():
+    """Returns the identity and role of the currently connected user (admin, member, or LAN guest)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"authenticated": False, "user": None}), 200
+    return jsonify({
+        "authenticated": True,
+        "user": user
+    }), 200
+
+
+@admin_auth_bp.route("/api/admin/users", methods=["GET"])
+@require_admin
+def list_users():
+    """Lists all registered system user accounts."""
+    users = database.list_admin_users()
+    return jsonify({"ok": True, "users": users}), 200
+
+
+@admin_auth_bp.route("/api/admin/users", methods=["POST"])
+@require_admin
+def create_user():
+    """Creates a new user account with specified role ('admin' or 'member')."""
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    display_name = (data.get("display_name") or "User").strip()
+    role = str(data.get("role") or "member").strip().lower()
+
+    if not username:
+        return jsonify({"ok": False, "error": "Username is required."}), 400
+    if len(password) < 8:
+        return jsonify({"ok": False, "error": "Password must be at least 8 characters."}), 400
+    if role not in ("admin", "member"):
+        return jsonify({"ok": False, "error": "Role must be 'admin' or 'member'."}), 400
+
+    existing = database.get_user_by_username(username)
+    if existing:
+        return jsonify({"ok": False, "error": f"Username '{username}' already exists."}), 409
+
+    try:
+        user = database.create_admin_user(
+            username=username,
+            password=password,
+            display_name=display_name,
+            role=role
+        )
+        return jsonify({"ok": True, "message": f"User '{username}' created successfully.", "user": user}), 201
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@admin_auth_bp.route("/api/admin/users/<user_id>", methods=["PUT"])
+@require_admin
+def update_user(user_id):
+    """Updates user display name, role, or password."""
+    data = request.get_json(silent=True) or {}
+    user = database.get_user_by_id(user_id)
+    if not user:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+
+    # Update display name
+    if "display_name" in data:
+        database.update_user_display_name(user_id, (data.get("display_name") or "").strip())
+
+    # Update role
+    if "role" in data:
+        role = str(data.get("role") or "").strip().lower()
+        if role not in ("admin", "member"):
+            return jsonify({"ok": False, "error": "Role must be 'admin' or 'member'."}), 400
+        try:
+            database.update_user_role(user_id, role)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+    # Update password if provided
+    if data.get("password"):
+        new_pw = data.get("password")
+        if len(new_pw) < 8:
+            return jsonify({"ok": False, "error": "Password must be at least 8 characters."}), 400
+        database.update_user_password(user_id, new_pw)
+
+    updated_user = database.get_user_by_id(user_id)
+    return jsonify({"ok": True, "message": "User updated successfully.", "user": updated_user}), 200
+
+
+@admin_auth_bp.route("/api/admin/users/<user_id>", methods=["DELETE"])
+@require_admin
+def delete_user_route(user_id):
+    """Deletes a user account, preventing deletion of the last admin."""
+    try:
+        success = database.delete_user(user_id)
+        if not success:
+            return jsonify({"ok": False, "error": "User not found."}), 404
+        return jsonify({"ok": True, "message": "User deleted successfully."}), 200
+    except ValueError as ve:
+        return jsonify({"ok": False, "error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

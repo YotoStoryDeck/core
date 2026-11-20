@@ -49,6 +49,9 @@ def init_db():
                 catalog_rotation_limit INTEGER DEFAULT 60,
                 kiosk_catalog_limit INTEGER DEFAULT 0,
                 catalog_rotation_hour INTEGER DEFAULT 3,
+                default_playback_mode TEXT DEFAULT 'streaming',
+                primary_card_id TEXT DEFAULT '',
+                offline_retention_limit INTEGER DEFAULT 8,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -151,6 +154,62 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             """)
+            # 8. Bridge Slots (Consolidated Yoto-ABS Bridge Slots & Fleet Cards)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS bridge_slots (
+                slot_id TEXT PRIMARY KEY,
+                abs_item_id TEXT NOT NULL,
+                yoto_card_id TEXT,
+                owner_profile_id TEXT,
+                title TEXT NOT NULL,
+                author TEXT DEFAULT '',
+                series_id TEXT DEFAULT '',
+                series_name TEXT DEFAULT '',
+                group_kind TEXT DEFAULT 'book',
+                kind TEXT DEFAULT 'permanent_myo',
+                source TEXT DEFAULT 'storydeck',
+                is_protected INTEGER DEFAULT 0,
+                is_pinned INTEGER DEFAULT 0,
+                total_duration REAL DEFAULT 0,
+                speed REAL DEFAULT 1.0,
+                own_place INTEGER DEFAULT 0,
+                mode TEXT DEFAULT 'streaming',
+                offline_status TEXT DEFAULT 'none',
+                offline_progress REAL DEFAULT 0.0,
+                icon_hash TEXT DEFAULT '',
+                last_played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(owner_profile_id) REFERENCES profiles(id) ON DELETE SET NULL
+            );
+            """)
+            # 9. Bridge Tracks (Multi-track & Chapter layout)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS bridge_tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slot_id TEXT NOT NULL,
+                track_idx INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                start_time REAL NOT NULL,
+                end_time REAL NOT NULL,
+                duration REAL NOT NULL,
+                icon_hash TEXT DEFAULT '',
+                yoto_sha256 TEXT DEFAULT '',
+                stream_url TEXT DEFAULT '',
+                FOREIGN KEY(slot_id) REFERENCES bridge_slots(slot_id) ON DELETE CASCADE
+            );
+            """)
+            # 10. Profile Extended Catalog Permissions (Whitelisted books/series/tags)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS profile_catalog_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(profile_id, item_type, item_id)
+            );
+            """)
         # Execute incremental schema migrations based on PRAGMA user_version
         run_schema_migrations(conn)
         # Check and migrate legacy config.json if database has 0 profiles
@@ -166,7 +225,7 @@ def init_db():
 # ============================================================================
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 10
 def run_schema_migrations(conn: sqlite3.Connection):
     """
     Applies incremental database schema migrations sequentially using SQLite's
@@ -295,6 +354,80 @@ def run_schema_migrations(conn: sqlite3.Connection):
             conn.execute("UPDATE profiles SET catalog_rotation_limit = 60 WHERE catalog_rotation_limit = 80;")
             conn.execute("PRAGMA user_version = 9;")
         logger.info("Migrated SQLite schema to version 9 (added kiosk_catalog_limit, adjusted touch default to 60).")
+
+    # Version 9 -> 10: Bridge consolidation, profile playback preferences & RBAC
+    if version < 10:
+        with conn:
+            cur.execute("PRAGMA table_info(profiles);")
+            p_columns = [col[1] for col in cur.fetchall()]
+            if "default_playback_mode" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN default_playback_mode TEXT DEFAULT 'streaming';")
+            if "primary_card_id" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN primary_card_id TEXT DEFAULT '';")
+            if "offline_retention_limit" not in p_columns:
+                conn.execute("ALTER TABLE profiles ADD COLUMN offline_retention_limit INTEGER DEFAULT 8;")
+
+            # Ensure bridge_slots table exists
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS bridge_slots (
+                slot_id TEXT PRIMARY KEY,
+                abs_item_id TEXT NOT NULL,
+                yoto_card_id TEXT,
+                owner_profile_id TEXT,
+                title TEXT NOT NULL,
+                author TEXT DEFAULT '',
+                series_id TEXT DEFAULT '',
+                series_name TEXT DEFAULT '',
+                group_kind TEXT DEFAULT 'book',
+                kind TEXT DEFAULT 'permanent_myo',
+                source TEXT DEFAULT 'storydeck',
+                is_protected INTEGER DEFAULT 0,
+                is_pinned INTEGER DEFAULT 0,
+                total_duration REAL DEFAULT 0,
+                speed REAL DEFAULT 1.0,
+                own_place INTEGER DEFAULT 0,
+                mode TEXT DEFAULT 'streaming',
+                offline_status TEXT DEFAULT 'none',
+                offline_progress REAL DEFAULT 0.0,
+                icon_hash TEXT DEFAULT '',
+                last_played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(owner_profile_id) REFERENCES profiles(id) ON DELETE SET NULL
+            );
+            """)
+
+            # Ensure bridge_tracks table exists
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS bridge_tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slot_id TEXT NOT NULL,
+                track_idx INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                start_time REAL NOT NULL,
+                end_time REAL NOT NULL,
+                duration REAL NOT NULL,
+                icon_hash TEXT DEFAULT '',
+                yoto_sha256 TEXT DEFAULT '',
+                stream_url TEXT DEFAULT '',
+                FOREIGN KEY(slot_id) REFERENCES bridge_slots(slot_id) ON DELETE CASCADE
+            );
+            """)
+
+            # Ensure profile_catalog_permissions table exists
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS profile_catalog_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(profile_id, item_type, item_id)
+            );
+            """)
+
+            conn.execute("PRAGMA user_version = 10;")
+        logger.info("Migrated SQLite schema to version 10 (bridge_slots, tracks, permissions, and profile playback preferences).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================

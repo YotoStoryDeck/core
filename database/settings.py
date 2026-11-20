@@ -29,6 +29,7 @@ def get_system_settings() -> Dict[str, Any]:
             "exclude_single_card_series": True,
             "auto_library_refresh_enabled": True,
             "auto_library_refresh_hours": 6,
+            "lan_sitter_access_enabled": True,
             "ai_chapter_art": {
                 "enabled": False,
                 "provider": "openrouter",
