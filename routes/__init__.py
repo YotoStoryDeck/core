@@ -11,6 +11,7 @@ from routes.admin_discovery import admin_discovery_bp
 from routes.admin_settings import admin_settings_bp
 from routes.yoto_oauth import yoto_oauth_bp
 from routes.esp32 import esp32_bp
+from routes.bridge import bridge_bp
 
 
 def register_blueprints(app: Flask):
@@ -23,3 +24,4 @@ def register_blueprints(app: Flask):
     app.register_blueprint(admin_settings_bp)
     app.register_blueprint(yoto_oauth_bp)
     app.register_blueprint(esp32_bp)
+    app.register_blueprint(bridge_bp)
