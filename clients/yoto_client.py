@@ -173,7 +173,8 @@ class YotoClient:
                                 "title": title,
                                 "author": "Audiobookshelf" if "audiobookshelf on" in title.lower() else "Yoto",
                                 "isMyo": True,
-                                "coverImageUrl": cover_url
+                                "coverImageUrl": cover_url,
+                                "lastPlayedAt": c.get("lastPlayedAt") or c.get("last_played_at") or ""
                             })
                         bridge_results = cards
 
@@ -226,7 +227,8 @@ class YotoClient:
                                 "coverImageUrl": cover_url,
                                 "series": str(s_name).strip() if s_name else "",
                                 "series_order": str(s_ord).strip() if s_ord else "",
-                                "groups": card_groups_map.get(cid, [])
+                                "groups": card_groups_map.get(cid, []),
+                                "lastPlayedAt": item.get("lastPlayedAt") or c.get("lastPlayedAt") or meta.get("lastPlayedAt") or item.get("last_played_at") or ""
                             })
                 except Exception as e:
                     logger.debug("Bridge family library query notice: %s", e)
@@ -262,12 +264,18 @@ class YotoClient:
         for c in cloud_cards:
             cid = c.get("cardId") or c.get("id")
             if cid:
+                lp = c.get("lastPlayedAt") or (c.get("card") or {}).get("lastPlayedAt") or (c.get("metadata") or {}).get("lastPlayedAt") or ""
+                if lp and not c.get("lastPlayedAt"):
+                    c["lastPlayedAt"] = lp
                 combined_map[cid] = c
 
         # Bridge playlists & library take precedence for live household data
         for c in bridge_results:
             cid = c.get("cardId") or c.get("id")
             if cid:
+                prev_lp = (combined_map.get(cid) or {}).get("lastPlayedAt") or ""
+                if not c.get("lastPlayedAt") and prev_lp:
+                    c["lastPlayedAt"] = prev_lp
                 combined_map[cid] = c
 
         # Deduplicate & Filter broker-created playlists from general retail library
@@ -351,7 +359,8 @@ class YotoClient:
                             "isMyo": is_myo,
                             "coverImageUrl": cover_url,
                             "series": str(series_name).strip() if series_name else "",
-                            "series_order": str(series_order).strip() if series_order else ""
+                            "series_order": str(series_order).strip() if series_order else "",
+                            "lastPlayedAt": item.get("lastPlayedAt") or c.get("lastPlayedAt") or meta.get("lastPlayedAt") or ""
                         })
                     if results:
                         logger.info("Loaded %d cards from local library cache (%s)", len(results), p)

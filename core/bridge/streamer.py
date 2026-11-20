@@ -104,3 +104,48 @@ class AudioStreamer:
                         proc.wait()
                     except Exception as e:
                         logger.debug("ffmpeg cleanup kill notice on %s: %s", t.url, e)
+
+    def detect_quiet_spots(self, sources: List[AudioTrackSource], start_sec: float, end_sec: float,
+                           auth_header: str = "", noise_db: int = -35, min_len: float = 0.25,
+                           timeout: float = 60.0) -> List[Tuple[float, float]]:
+        """Finds quiet pauses (start, end in book time) within [start_sec, end_sec) using ffmpeg silencedetect."""
+        spots: List[Tuple[float, float]] = []
+        for t in sources:
+            t_end = t.start + t.duration
+            if t_end <= start_sec or t.start >= end_sec:
+                continue
+
+            seek = max(0.0, start_sec - t.start)
+            seg_len = min(t_end, end_sec) - max(t.start, start_sec)
+
+            args = [self.ffmpeg, "-hide_banner", "-nostdin", "-nostats"]
+            if t.url.startswith("http") and auth_header:
+                args += ["-headers", f"Authorization: {auth_header}\r\n"]
+            if seek > 0.05:
+                args += ["-ss", f"{seek:.3f}"]
+            args += [
+                "-i", t.url,
+                "-t", f"{seg_len:.3f}",
+                "-vn",
+                "-af", f"silencedetect=noise={noise_db}dB:d={min_len:g}",
+                "-f", "null", "-"
+            ]
+
+            res = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
+            err = (res.stderr or b"").decode(errors="replace")
+            if res.returncode != 0:
+                raise SourceError(f"could not read the audio around {start_sec:.0f}s: {' '.join(err.split())[-120:]}")
+
+            base = t.start + seek
+            s0: Optional[float] = None
+            for line in err.splitlines():
+                if "silence_start:" in line:
+                    s0 = float(line.rsplit("silence_start:", 1)[1].split()[0])
+                elif "silence_end:" in line and s0 is not None:
+                    e0 = float(line.rsplit("silence_end:", 1)[1].split()[0])
+                    spots.append((base + max(0.0, s0), base + e0))
+                    s0 = None
+            if s0 is not None:
+                spots.append((base + max(0.0, s0), base + seg_len))
+
+        return spots

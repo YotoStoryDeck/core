@@ -5,6 +5,8 @@ Automatically refreshes upstream Yoto and Audiobookshelf media items periodicall
 
 import time
 import threading
+from datetime import datetime, timezone
+from typing import Any, List, Optional
 import requests
 import database
 import clients
@@ -18,6 +20,88 @@ _scheduler_lock = threading.Lock()
 _last_refresh_time = 0.0
 _last_refresh_status = "Never run"
 _last_refresh_count = 0
+
+
+def _normalize_timestamp_iso(val: Any) -> str:
+    """Normalizes numeric epoch (ms or sec) or ISO-8601 strings to UTC ISO-8601."""
+    if val is None or val == "":
+        return ""
+    if isinstance(val, (int, float)):
+        ts = float(val)
+        if ts <= 0:
+            return ""
+        if ts > 1e12:
+            ts /= 1000.0
+        try:
+            return datetime.fromtimestamp(ts, timezone.utc).isoformat()
+        except Exception:
+            return ""
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return ""
+        try:
+            num = float(s)
+            if num <= 0:
+                return ""
+            if num > 1e12:
+                num /= 1000.0
+            return datetime.fromtimestamp(num, timezone.utc).isoformat()
+        except ValueError:
+            pass
+        try:
+            clean = s[:-1] + "+00:00" if s.endswith("Z") else s
+            dt = datetime.fromisoformat(clean)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc).isoformat()
+        except Exception:
+            return s
+    return ""
+
+
+def sync_abs_user_playback_history() -> int:
+    """
+    Synchronizes Audiobookshelf user mediaProgress.lastUpdate timestamps into
+    media_playback_history for every child profile with a linked abs_username.
+    """
+    if not clients.abs_client:
+        return 0
+    profiles = database.get_all_profiles()
+    linked = [
+        (p_id, p_cfg)
+        for p_id, p_cfg in profiles.items()
+        if (p_cfg.get("abs_username") or "").strip()
+    ]
+    if not linked:
+        return 0
+
+    users = clients.abs_client.get_all_users()
+    uname_to_uid = {
+        (u.get("username") or "").strip().lower(): u.get("id")
+        for u in users
+        if u.get("id")
+    }
+
+    synced = 0
+    for p_id, p_cfg in linked:
+        uname = p_cfg["abs_username"].strip().lower()
+        uid = uname_to_uid.get(uname)
+        if not uid:
+            continue
+        existing = database.get_playback_history(p_id)
+        for mp in clients.abs_client.get_user_media_progress(uid):
+            lid = mp.get("libraryItemId")
+            lu = mp.get("lastUpdate")
+            iso_ts = _normalize_timestamp_iso(lu)
+            if lid and iso_ts and (lid not in existing or iso_ts > existing[lid]):
+                database.record_playback(lid, p_id, iso_ts)
+                existing[lid] = iso_ts
+                synced += 1
+
+    if synced > 0:
+        logger.info("Scheduled ABS progress sync updated %d playback history record(s).", synced)
+    return synced
 
 
 def perform_library_refresh() -> int:
@@ -42,6 +126,7 @@ def perform_library_refresh() -> int:
         logger.debug("Notice reading known series from database: %s", e)
 
     # 1. Yoto Cards & Groups
+    yoto_playback_events = []
     if clients.yoto_client:
         yoto_card_groups = {}
         try:
@@ -75,6 +160,16 @@ def perform_library_refresh() -> int:
                 primary_series = series_list[0]["name"] if series_list else ""
                 primary_order = series_list[0]["order"] if series_list else ""
 
+                last_played_iso = _normalize_timestamp_iso(
+                    c.get("lastPlayedAt")
+                    or (c.get("card") or {}).get("lastPlayedAt")
+                    or (c.get("metadata") or {}).get("lastPlayedAt")
+                    or c.get("last_played_at")
+                    or ""
+                )
+                if cid and last_played_iso:
+                    yoto_playback_events.append((cid, last_played_iso))
+
                 discovered_items.append({
                     "id": cid,
                     "type": "yoto_myo" if c.get("isMyo") else "yoto",
@@ -84,7 +179,8 @@ def perform_library_refresh() -> int:
                     "raw_metadata": {
                         "series": primary_series,
                         "series_order": primary_order,
-                        "series_list": series_list
+                        "series_list": series_list,
+                        "lastPlayedAt": last_played_iso
                     }
                 })
         except Exception as e:
@@ -143,6 +239,17 @@ def perform_library_refresh() -> int:
 
     count = database.upsert_media_items(discovered_items)
 
+    # Ingest Yoto card lastPlayedAt events and sync ABS user playback history
+    for y_cid, lp_iso in yoto_playback_events:
+        try:
+            database.record_playback(y_cid, "default", lp_iso)
+        except Exception as e:
+            logger.debug("Yoto lastPlayedAt ingestion notice for %s: %s", y_cid, e)
+    try:
+        sync_abs_user_playback_history()
+    except Exception as e:
+        logger.debug("Scheduled ABS user playback sync notice: %s", e)
+
     # Prune stale records that were deleted upstream in Yoto or Audiobookshelf
     pruned_count = 0
     if discovered_items:
@@ -164,12 +271,58 @@ def perform_library_refresh() -> int:
     except Exception as e:
         logger.debug("Avatar bubble sync notice: %s", e)
 
+    try:
+        from core.bridge.offline import prune_evicted_profile_playlists
+        lru_res = prune_evicted_profile_playlists()
+        if lru_res.get("pruned_count", 0) > 0:
+            logger.info("Automated LRU cache pruner evicted %d playlist(s).", lru_res["pruned_count"])
+    except Exception as e:
+        logger.debug("Scheduled LRU cache pruning notice: %s", e)
+
     _last_refresh_time = time.time()
     _last_refresh_count = count
     status_suffix = f", {pruned_count} pruned" if pruned_count > 0 else ""
     _last_refresh_status = f"Completed successfully ({count} items refreshed{status_suffix})"
     logger.info("Background library refresh complete: %d items upserted.", count)
     return count
+
+
+def _check_daily_profile_rotations(now_dt: Optional[datetime] = None) -> List[str]:
+    """
+    Triggers daily wall-clock catalog rotation re-rolls when the local hour reaches
+    each profile's configured catalog_rotation_hour (default 03:00).
+    """
+    now_dt = now_dt or datetime.now()
+    today_str = now_dt.strftime("%Y-%m-%d")
+    cur_hour = now_dt.hour
+
+    profiles = database.get_all_profiles()
+    settings = database.get_system_settings()
+    last_dates = dict(settings.get("profile_last_rotation_dates") or {})
+
+    due_profiles: List[str] = []
+    for pid, pcfg in profiles.items():
+        rot_hour = max(0, min(23, int(pcfg.get("catalog_rotation_hour", 3) if pcfg.get("catalog_rotation_hour") is not None else 3)))
+        if cur_hour >= rot_hour and last_dates.get(pid) != today_str:
+            due_profiles.append(pid)
+
+    if due_profiles:
+        logger.info("Daily wall-clock rotation due for profile(s): %s", ", ".join(due_profiles))
+        if time.time() - _last_refresh_time >= 300:
+            try:
+                perform_library_refresh()
+            except Exception as e:
+                logger.warning("Pre-rotation library refresh notice: %s", e)
+        for pid in due_profiles:
+            try:
+                database.get_catalog_items_for_profile(pid, "abs")
+                database.get_catalog_items_for_profile(pid, "yoto")
+            except Exception as e:
+                logger.debug("Catalog warm-up notice during rotation for %s: %s", pid, e)
+            last_dates[pid] = today_str
+        database.set_system_setting("profile_last_rotation_dates", last_dates)
+
+    return due_profiles
 
 
 def get_refresh_status() -> dict:
@@ -190,7 +343,8 @@ def get_refresh_status() -> dict:
         "last_refresh_time": int(_last_refresh_time) if _last_refresh_time else None,
         "last_refresh_status": _last_refresh_status,
         "last_refresh_count": _last_refresh_count,
-        "next_run_seconds": next_run_seconds
+        "next_run_seconds": next_run_seconds,
+        "profile_last_rotation_dates": settings.get("profile_last_rotation_dates", {})
     }
 
 
@@ -216,6 +370,11 @@ def _scheduler_loop():
                         perform_library_refresh()
                     except Exception as e:
                         logger.error("Exception during background library refresh: %s", e)
+
+            try:
+                _check_daily_profile_rotations()
+            except Exception as e:
+                logger.error("Exception during daily profile rotation check: %s", e)
         except Exception as e:
             logger.error("Scheduler loop error: %s", e)
 

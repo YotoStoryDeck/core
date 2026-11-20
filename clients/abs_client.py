@@ -48,6 +48,30 @@ class ABSClient:
             logger.debug("Failed to retrieve Audiobookshelf user token for '%s': %s", username, e)
         return None
 
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Fetches all configured Audiobookshelf user accounts using the master API key."""
+        if not self.api_key or not self.base_url:
+            return []
+        try:
+            res = requests.get(f"{self.base_url}/api/users", headers=self.get_headers(self.api_key), timeout=8)
+            if res.status_code == 200:
+                return res.json().get("users", [])
+        except Exception as e:
+            logger.debug("ABS get_all_users error: %s", e)
+        return []
+
+    def get_user_media_progress(self, user_id: str) -> List[Dict[str, Any]]:
+        """Fetches mediaProgress entries for a specific Audiobookshelf user ID."""
+        if not user_id or not self.api_key or not self.base_url:
+            return []
+        try:
+            res = requests.get(f"{self.base_url}/api/users/{user_id}", headers=self.get_headers(self.api_key), timeout=8)
+            if res.status_code == 200:
+                return res.json().get("mediaProgress", [])
+        except Exception as e:
+            logger.debug("ABS get_user_media_progress error for '%s': %s", user_id, e)
+        return []
+
     def get_libraries(self, token: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetches all ABS libraries visible to the supplied token (or default api_key)."""
         headers = self.get_headers(token)

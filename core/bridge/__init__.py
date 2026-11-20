@@ -5,6 +5,7 @@ Provides streaming audio transcoding, chapter splitting, and Yoto MYO playlist m
 from .manager import BridgeManager, get_bridge_manager
 from .streamer import AudioStreamer, AudioTrackSource
 from .offline import OfflineTranscodeManager, get_offline_manager, prune_evicted_profile_playlists
+from .quiet import QuietSpots, get_quiet_spots, WINDOW, GOOD_PAUSE, cut
 
 __all__ = [
     "BridgeManager",
@@ -13,5 +14,10 @@ __all__ = [
     "AudioTrackSource",
     "OfflineTranscodeManager",
     "get_offline_manager",
-    "prune_evicted_profile_playlists"
+    "prune_evicted_profile_playlists",
+    "QuietSpots",
+    "get_quiet_spots",
+    "WINDOW",
+    "GOOD_PAUSE",
+    "cut"
 ]

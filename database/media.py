@@ -240,7 +240,11 @@ def record_playback(media_id: str, profile_id: str = "default", timestamp: str =
             conn.execute("""
             INSERT INTO media_playback_history (media_id, profile_id, last_played_at)
             VALUES (?, ?, ?)
-            ON CONFLICT(media_id, profile_id) DO UPDATE SET last_played_at = excluded.last_played_at;
+            ON CONFLICT(media_id, profile_id) DO UPDATE SET
+                last_played_at = CASE
+                    WHEN excluded.last_played_at > media_playback_history.last_played_at THEN excluded.last_played_at
+                    ELSE media_playback_history.last_played_at
+                END;
             """, (media_id, (profile_id or "default").lower(), ts))
     except Exception as e:
         logger.warning("Error recording playback history for %s: %s", media_id, e)

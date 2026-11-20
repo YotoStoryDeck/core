@@ -4,7 +4,7 @@ import json
 import re
 import unicodedata
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 
 from .connection import get_db_connection, logger
@@ -39,7 +39,7 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs", cli
        and physical card down-weighting, capped at the configurable profile rotation limit (default 60 on Touch, 0/unlimited on Kiosk).
     Returns microcontroller-optimized array matching the client response schema.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     import hashlib
 
     matrix = get_catalog_matrix()
@@ -281,8 +281,9 @@ def get_catalog_items_for_profile(profile_key: str, media_type: str = "abs", cli
             c_key = f"card:{it['id']}"
         cluster_map.setdefault(c_key, []).append(it)
 
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    seed_base = f"{profile_key.lower()}:{today_str}"
+    rotation_hour = max(0, min(23, int(pcfg.get("catalog_rotation_hour", 3) if pcfg.get("catalog_rotation_hour") is not None else 3)))
+    effective_day = (datetime.now() - timedelta(hours=rotation_hour)).strftime("%Y-%m-%d")
+    seed_base = f"{profile_key.lower()}:{effective_day}"
 
     cluster_list = []
     for c_key, c_books in cluster_map.items():
