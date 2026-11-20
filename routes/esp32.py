@@ -243,10 +243,11 @@ def register_device():
     # Prioritize explicit client IP from device payload, followed by reverse-proxy headers
     ip_addr = data.get("ip_address") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or request.remote_addr or ""
     firmware_ver = data.get("firmware_version", "1.0.0")
+    boot_state = (data.get("boot_state") or "").strip().lower()
     if not mac:
         return jsonify({"ok": False, "error": "Missing mac_address"}), 400
     mac_clean = mac.lower().strip()
-    device_info = database.register_esp32_device(mac_clean, friendly_name, ip_addr, firmware_ver)
+    device_info = database.register_esp32_device(mac_clean, friendly_name, ip_addr, firmware_ver, boot_state=boot_state)
     dev_record = database.get_esp32_device(mac_clean)
     is_approved = bool(dev_record.get("is_approved")) if dev_record else False
     if not is_approved:
@@ -391,6 +392,7 @@ def get_device_config():
         except Exception:
             dev_settings = {}
     can_switch = (len(profile_summaries) > 1) and not bool(assigned_prof)
+    latest_rel = database.get_latest_firmware_release()
     return jsonify({
         "device_id": device_id or "unknown",
         "is_approved": is_approved,
@@ -401,6 +403,12 @@ def get_device_config():
         "settings": dev_settings,
         "allow_profile_switch": can_switch,
         "exclude_single_card_series": exclude_single,
+        "ota": {
+            "ota_status": (device.get("ota_status") or "idle") if device else "idle",
+            "ota_progress": int(device.get("ota_progress") or 0) if device else 0,
+            "target_firmware_version": (device.get("target_firmware_version") or "") if device else "",
+            "latest_firmware_version": (latest_rel.get("version") or "") if latest_rel else "",
+        },
         "profiles": profile_summaries
     })
 

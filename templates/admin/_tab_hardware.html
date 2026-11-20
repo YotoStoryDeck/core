@@ -5,7 +5,9 @@
           <h2>Discovered Hardware Displays</h2>
           <p class="text-secondary">Review ESP32 bedside controllers, approve devices, and assign default profiles.</p>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-primary btn-sm" onclick="openUploadFirmwareModal()">📦 Upload Firmware (.bin)</button>
+          <button class="btn btn-secondary btn-sm" onclick="pushFirmwareUpdateAll()" title="Push latest firmware to all approved Touch controllers">🚀 Update All Touch</button>
           <button class="btn btn-secondary btn-sm" onclick="pingAllDevices()">📡 Ping All</button>
           <button class="btn btn-secondary btn-sm" onclick="pruneStaleDevices()">🧹 Prune Inactive</button>
         </div>
@@ -25,6 +27,40 @@
               </tr>
             </thead>
             <tbody id="devicesTableBody">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Firmware Repository Card (Remote OTA - DLP-010) -->
+      <div class="card table-card" id="firmwareRepoCard" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
+          <div>
+            <h3 style="margin: 0 0 4px 0;">Firmware Repository (Remote OTA)</h3>
+            <p class="text-secondary" style="font-size: 12px; margin: 0;">
+              Cataloged ESP32-S3 binaries served over LAN with SHA-256 verification and 1-click rollback.
+            </p>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span class="badge badge-subtle" id="firmwareLatestBadge">Latest: None</span>
+            <span class="badge badge-info" id="firmwareCountBadge">0 releases</span>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="firmwareReleasesTable">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Tag / Commit</th>
+                <th>Size</th>
+                <th>SHA-256</th>
+                <th>Release Notes</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="firmwareReleasesBody">
               <!-- Rendered via JS -->
             </tbody>
           </table>

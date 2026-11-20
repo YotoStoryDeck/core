@@ -33,6 +33,10 @@ from .settings import (
     get_system_settings, set_system_setting, get_api_credentials, update_api_credentials,
     get_master_api_key_details, get_master_api_key, regenerate_master_api_key
 )
+from .firmware import (
+    list_firmware_releases, get_firmware_release, get_latest_firmware_release,
+    upsert_firmware_release, set_active_latest_firmware, delete_firmware_release
+)
 
 __all__ = [
     "get_db_connection", "DB_PATH", "LEGACY_CONFIG_PATH", "DB_DEFAULT", "CONFIG_DEFAULT", "IS_DOCKER", "logger",
@@ -54,4 +58,6 @@ __all__ = [
     "batch_update_profile_media_permissions",
     "get_system_settings", "set_system_setting", "get_api_credentials", "update_api_credentials",
     "get_master_api_key_details", "get_master_api_key", "regenerate_master_api_key",
+    "list_firmware_releases", "get_firmware_release", "get_latest_firmware_release",
+    "upsert_firmware_release", "set_active_latest_firmware", "delete_firmware_release",
 ]

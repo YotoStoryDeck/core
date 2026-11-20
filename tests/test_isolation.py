@@ -31,6 +31,7 @@ def ensure_isolated_test_env() -> Path:
     os.environ["CACHE_DIR"] = str(tmp / "cache")
     os.environ["AVATARS_DIR"] = str(tmp / "avatars")
     os.environ["CUSTOM_ICONS_DIR"] = str(tmp / "custom_icons")
+    os.environ["FIRMWARE_DIR"] = str(tmp / "firmware")
 
     # Prevent accidental fallback to live environment credentials during unit tests
     for env_key in (

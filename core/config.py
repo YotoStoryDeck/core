@@ -56,6 +56,7 @@ YOTO_BRIDGE_URL = os.getenv("YOTO_BRIDGE_URL", "").rstrip("/")
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/app/cache/thumbnails" if database.IS_DOCKER else str(Path(__file__).parent.parent / "cache" / "thumbnails")))
 AVATARS_DIR = Path(os.getenv("AVATARS_DIR", "/app/data/avatars" if database.IS_DOCKER else str(Path(__file__).parent.parent / "data" / "avatars")))
 CUSTOM_ICONS_DIR = Path(os.getenv("CUSTOM_ICONS_DIR", "/app/data/custom_icons" if database.IS_DOCKER else str(Path(__file__).parent.parent / "data" / "custom_icons")))
+FIRMWARE_DIR = Path(os.getenv("FIRMWARE_DIR", "/app/data/firmware" if database.IS_DOCKER else str(Path(__file__).parent.parent / "data" / "firmware")))
 THUMBNAIL_SIZE = int(os.getenv("THUMBNAIL_SIZE", "100"))
 TRUSTED_PROXIES_RAW = os.getenv("TRUSTED_PROXIES", "127.0.0.1")
 
@@ -76,3 +77,4 @@ for p in TRUSTED_PROXIES_RAW.split(","):
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 CUSTOM_ICONS_DIR.mkdir(parents=True, exist_ok=True)
+FIRMWARE_DIR.mkdir(parents=True, exist_ok=True)

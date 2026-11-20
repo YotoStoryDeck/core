@@ -54,10 +54,14 @@ function renderDevicesTable() {
       ? `<span id="ping-${safeMac}" data-ip="${escapeHtml(d.ip_address)}" style="font-weight: 500;">${escapeHtml(d.ip_address)}</span>`
       : `<span id="ping-${safeMac}" data-ip="" style="color: var(--text-muted);">No IP</span>`;
 
-    // 3. Engine / Firmware Version Pill
+    // 3. Engine / Firmware Version & Live OTA Status Pill
     const rawFw = d.firmware_version ? d.firmware_version.trim() : "1.0.0";
     const fwDisplay = rawFw.startsWith("v") ? rawFw : `v${rawFw}`;
-    const versionBadge = `<span class="badge badge-subtle" style="font-family: monospace; font-size: 11px;">${escapeHtml(fwDisplay)}</span>`;
+    const otaBadgeHtml = (typeof renderDeviceOtaBadge === "function") ? renderDeviceOtaBadge(d) : "";
+    const versionBadge = `
+      <div><span class="badge badge-subtle" style="font-family: monospace; font-size: 11px;">${escapeHtml(fwDisplay)}</span></div>
+      ${otaBadgeHtml}
+    `;
 
     // 4. Profile display pill
     let profileDisplay = `<span style="color: var(--text-muted);">None</span>`;
@@ -98,6 +102,13 @@ function renderDevicesTable() {
             : `<button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); toggleDeviceApproval('${escapeHtml(d.mac_address)}', true)"><span>✅</span> Approve Device</button>`
           }
           <button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); revokeDeviceAccess('${escapeHtml(d.mac_address)}')"><span>🔒</span> Revoke Access</button>
+          ${!isKiosk ? `
+            <div class="device-dropdown-divider"></div>
+            <button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); openPushFirmwareModal('${escapeHtml(d.mac_address)}')"><span>🚀</span> Push Firmware / Rollback</button>
+            <button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); fetchDeviceCacheStatus('${escapeHtml(d.mac_address)}')"><span>💾</span> Check MicroSD Status</button>
+            <button type="button" class="device-dropdown-item" onclick="closeAllDeviceActionMenus(); pruneDeviceCache('${escapeHtml(d.mac_address)}')"><span>🧹</span> Prune MicroSD Orphans</button>
+            <button type="button" class="device-dropdown-item text-danger" onclick="closeAllDeviceActionMenus(); purgeDeviceCache('${escapeHtml(d.mac_address)}')"><span>🗑️</span> Purge MicroSD Cache</button>
+          ` : ""}
           <div class="device-dropdown-divider"></div>
           <button type="button" class="device-dropdown-item text-danger" onclick="closeAllDeviceActionMenus(); deleteDevice('${escapeHtml(d.mac_address)}')"><span>🗑️</span> Delete Device</button>
         </div>
@@ -125,6 +136,7 @@ function renderDevicesTable() {
         <div style="font-size: 11px; font-family: monospace; color: var(--text-secondary); margin-top: 2px;">
           ${escapeHtml(d.mac_address)}
         </div>
+        <div id="sd-status-${safeMac}" style="font-size: 11px; margin-top: 4px;"></div>
       </td>
       <td>${versionBadge}</td>
       <td>${profileDisplay}</td>
@@ -134,6 +146,9 @@ function renderDevicesTable() {
     `;
     tbody.appendChild(tr);
   });
+  if (typeof syncOtaProgressPolling === "function") {
+    syncOtaProgressPolling();
+  }
 }
 
 async function toggleDeviceApproval(mac, approve) {

@@ -1,0 +1,92 @@
+<!-- Firmware Upload & Remote OTA Push / Rollback Modals (DLP-010) -->
+<div class="modal-overlay" id="uploadFirmwareModal" style="display: none;">
+  <div class="modal-card" style="max-width: 520px; width: 100%;">
+    <div class="modal-header">
+      <h2 style="font-size: 18px; margin: 0 0 4px 0;">📦 Upload ESP32 Firmware Binary</h2>
+      <p class="text-secondary" style="margin: 0; font-size: 13px;">
+        Upload a compiled PlatformIO <code>firmware.bin</code> for 1-click LAN OTA deployment &amp; rollback.
+      </p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px;">
+      <div>
+        <label for="uploadFirmwareFile" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+          Firmware Binary (<code>.bin</code>)
+        </label>
+        <input type="file" id="uploadFirmwareFile" accept=".bin" class="form-control">
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+          <label for="uploadFirmwareVersion" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+            Semantic Version
+          </label>
+          <input type="text" id="uploadFirmwareVersion" class="form-control" placeholder="e.g. v1.2.1" autocomplete="off">
+        </div>
+        <div>
+          <label for="uploadFirmwareTag" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+            Release Tag (Optional)
+          </label>
+          <input type="text" id="uploadFirmwareTag" class="form-control" placeholder="e.g. Latest Stable" autocomplete="off">
+        </div>
+      </div>
+      <div>
+        <label for="uploadFirmwareCommit" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+          Git Commit Hash (Optional)
+        </label>
+        <input type="text" id="uploadFirmwareCommit" class="form-control" placeholder="e.g. 7a35e53" autocomplete="off">
+      </div>
+      <div>
+        <label for="uploadFirmwareNotes" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+          Release Notes / Changelog
+        </label>
+        <textarea id="uploadFirmwareNotes" class="form-control" rows="3" placeholder="Summary of changes in this build..."></textarea>
+      </div>
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); cursor: pointer;">
+        <input type="checkbox" id="uploadFirmwareSetLatest" checked>
+        <span>Mark as Active Latest stable release</span>
+      </label>
+    </div>
+
+    <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+      <button type="button" class="btn btn-secondary" onclick="closeUploadFirmwareModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitUploadFirmware()">Upload Binary</button>
+    </div>
+  </div>
+</div>
+
+<!-- Push Firmware Update / Rollback Modal -->
+<div class="modal-overlay" id="pushFirmwareModal" style="display: none;">
+  <div class="modal-card" style="max-width: 560px; width: 100%;">
+    <div class="modal-header">
+      <h2 style="font-size: 18px; margin: 0 0 4px 0;">🚀 Push Firmware Update / Rollback</h2>
+      <p class="text-secondary" style="margin: 0; font-size: 13px;">
+        Target Device: <strong id="pushFirmwareDeviceName" style="color: var(--text-primary);"></strong>
+        (<code id="pushFirmwareDeviceMac"></code>) — Current: <span id="pushFirmwareCurrentVer" class="badge badge-subtle"></span>
+      </p>
+    </div>
+
+    <div style="margin-top: 14px;">
+      <label style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text-secondary);">
+        Select Cataloged Firmware Release:
+      </label>
+      <div id="pushFirmwareVersionList" class="custom-scrollbar" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding: 8px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px;">
+        <!-- Populated dynamically via JS -->
+      </div>
+    </div>
+
+    <div style="margin-top: 12px; padding: 10px 12px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 6px;">
+      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Release Notes &amp; Integrity</div>
+      <div id="pushFirmwareChangelog" style="font-size: 12px; color: var(--text-primary); white-space: pre-wrap;">Select a firmware release above.</div>
+    </div>
+
+    <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-top: 12px; cursor: pointer;">
+      <input type="checkbox" id="pushFirmwareForce">
+      <span>Force re-flash even if version already matches</span>
+    </label>
+
+    <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+      <button type="button" class="btn btn-secondary" onclick="closePushFirmwareModal()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitPushFirmware()">Confirm &amp; Push Update</button>
+    </div>
+  </div>
+</div>

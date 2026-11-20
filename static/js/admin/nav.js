@@ -40,7 +40,7 @@ function switchTab(tabId, updateHash = true) {
 
   if (tabId === "profiles") loadProfiles();
   if (tabId === "library") loadMatrix();
-  if (tabId === "hardware") loadDevices();
+  if (tabId === "hardware") { loadDevices(); if (typeof loadFirmwareReleases === "function") loadFirmwareReleases(); }
   if (tabId === "settings") { loadApiCredentials(); if (typeof checkCoreUpdates === "function") checkCoreUpdates(); }
 }
 
@@ -63,7 +63,7 @@ function loadInitialData() {
   // Eagerly pre-load data for other tabs in the background so switching is instant
   if (initialTab !== "profiles") loadProfiles();
   if (initialTab !== "library") loadMatrix();
-  if (initialTab !== "hardware") loadDevices();
+  if (initialTab !== "hardware") { loadDevices(); if (typeof loadFirmwareReleases === "function") loadFirmwareReleases(); }
   if (initialTab !== "settings") loadApiCredentials();
   if (typeof checkCoreUpdates === "function") checkCoreUpdates();
 }

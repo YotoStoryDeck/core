@@ -7,21 +7,50 @@ from typing import Dict, Any, List, Optional
 
 from .connection import get_db_connection, logger
 
-def register_esp32_device(mac_address: str, friendly_name: str, ip_address: str, firmware_version: str) -> Dict[str, Any]:
+def register_esp32_device(
+    mac_address: str,
+    friendly_name: str,
+    ip_address: str,
+    firmware_version: str,
+    boot_state: str = "",
+) -> Dict[str, Any]:
     """Registers an ESP32 device upon boot handshake (quarantined by default if new)."""
     mac_clean = mac_address.lower().strip()
+    clean_boot = (boot_state or "").strip().lower()
     conn = get_db_connection()
     try:
         with conn:
             cur = conn.cursor()
-            cur.execute("SELECT mac_address, friendly_name, assigned_profile_id, is_approved FROM esp32_devices WHERE mac_address = ?;", (mac_clean,))
+            cur.execute(
+                "SELECT mac_address, friendly_name, assigned_profile_id, is_approved, target_firmware_version, ota_status FROM esp32_devices WHERE mac_address = ?;",
+                (mac_clean,),
+            )
             existing = cur.fetchone()
             if existing:
-                conn.execute("""
-                UPDATE esp32_devices 
-                SET ip_address = ?, firmware_version = ?, last_seen = CURRENT_TIMESTAMP
-                WHERE mac_address = ?;
-                """, (ip_address, firmware_version, mac_clean))
+                if clean_boot == "rolled_back":
+                    conn.execute("""
+                    UPDATE esp32_devices
+                    SET ip_address = ?, firmware_version = ?, ota_status = 'rolled_back',
+                        ota_progress = 0, ota_last_error = 'Bootloader auto-rollback triggered',
+                        last_seen = CURRENT_TIMESTAMP
+                    WHERE mac_address = ?;
+                    """, (ip_address, firmware_version, mac_clean))
+                elif clean_boot == "verified" or (
+                    existing["target_firmware_version"] == firmware_version
+                    and (existing["ota_status"] or "") in ("pending", "downloading", "flashing", "flashing_done")
+                ):
+                    conn.execute("""
+                    UPDATE esp32_devices
+                    SET ip_address = ?, firmware_version = ?, ota_status = 'idle',
+                        ota_progress = 100, ota_last_error = '', last_seen = CURRENT_TIMESTAMP
+                    WHERE mac_address = ?;
+                    """, (ip_address, firmware_version, mac_clean))
+                else:
+                    conn.execute("""
+                    UPDATE esp32_devices
+                    SET ip_address = ?, firmware_version = ?, last_seen = CURRENT_TIMESTAMP
+                    WHERE mac_address = ?;
+                    """, (ip_address, firmware_version, mac_clean))
                 return {
                     "mac_address": mac_clean,
                     "friendly_name": existing["friendly_name"],
@@ -93,6 +122,7 @@ def update_esp32_device(mac_address: str, updates: Dict[str, Any]) -> bool:
             values = []
             for k in [
                 "friendly_name", "assigned_profile_id", "is_approved",
+                "firmware_version", "previous_firmware_version",
                 "target_firmware_version", "ota_status", "ota_progress", "ota_last_error",
                 "jwt_secret", "token_version", "last_token_issued", "parent_pin",
                 "lock_player", "locked_player_id", "settings_json"
