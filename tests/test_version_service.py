@@ -3,6 +3,7 @@ Unit tests for core/version_service.py.
 Tests SemVer parsing, version resolution hierarchy, and mock GitHub API checks.
 """
 
+import tests.test_isolation  # noqa: F401 - must precede app/core imports
 import unittest
 from unittest.mock import patch, MagicMock
 import os

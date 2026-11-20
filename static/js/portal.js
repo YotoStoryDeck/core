@@ -15,6 +15,8 @@ let currentPlaylistFilter = "all";
 let currentVolumeMax = 100;
 let pollInterval = null;
 let isScrubbing = false;
+let yotoTokenValid = true;
+let authCheckInterval = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   initPortal();
@@ -25,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // -----------------------------------------------------------------------------
 
 function switchTab(tabName) {
+  if (!yotoTokenValid) return;
   document.querySelectorAll(".tab-view").forEach(el => el.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
 
@@ -41,21 +44,109 @@ function switchTab(tabName) {
 }
 
 // -----------------------------------------------------------------------------
+// Yoto Token Health Gate & Lockout
+// -----------------------------------------------------------------------------
+
+async function checkYotoAuthStatus(force = false) {
+  const pill = document.getElementById("yotoAuthStatusPill");
+  const blockedView = document.getElementById("yotoAuthBlockedView");
+  const errDetail = document.getElementById("yotoAuthErrorDetail");
+  const retryBtn = document.getElementById("btnRetryYotoAuth");
+
+  if (force && retryBtn) {
+    retryBtn.disabled = true;
+    retryBtn.innerText = "⏳ Checking Yoto Token...";
+  }
+
+  let data = {
+    token_valid: false,
+    error: "Unable to verify Yoto API connection."
+  };
+
+  try {
+    const res = await fetch(`/api/yoto/auth-status${force ? "?force=1" : ""}`);
+    if (res.ok) {
+      data = await res.json();
+    } else {
+      data.error = `Yoto status check returned HTTP ${res.status}.`;
+    }
+  } catch (err) {
+    data.error = "Unable to reach StoryDeck Core server to verify Yoto token.";
+  } finally {
+    if (force && retryBtn) {
+      retryBtn.disabled = false;
+      retryBtn.innerText = "🔄 Retry Yoto Connection";
+    }
+  }
+
+  const valid = Boolean(data && data.token_valid);
+
+  if (pill) {
+    if (valid) {
+      pill.className = "yoto-status-pill ok";
+      pill.innerText = "🟢 Yoto";
+      pill.title = "Yoto API Connected";
+    } else {
+      pill.className = "yoto-status-pill error";
+      pill.innerText = "🔴 Yoto Token Error";
+      pill.title = data.error || "Yoto API Token Not Resolving";
+    }
+  }
+
+  if (!valid) {
+    yotoTokenValid = false;
+    document.body.classList.add("yoto-auth-locked");
+    if (blockedView) blockedView.style.display = "block";
+    if (errDetail) {
+      errDetail.innerText = data.error || "Yoto OAuth token is expired or invalid. Open Admin Settings → Yoto Play Cloud to reconnect.";
+    }
+    return false;
+  }
+
+  const wasBlocked = !yotoTokenValid;
+  yotoTokenValid = true;
+  document.body.classList.remove("yoto-auth-locked");
+  if (blockedView) blockedView.style.display = "none";
+
+  if (wasBlocked) {
+    await loadProfiles();
+    await loadDevices();
+    await loadLibrary();
+    loadContinueListening();
+    loadCards();
+    loadPlaylists();
+    loadHouseholdYotoCards();
+    pollPlayerStatus();
+  }
+  return true;
+}
+
+// -----------------------------------------------------------------------------
 // Initialization
 // -----------------------------------------------------------------------------
 
 async function initPortal() {
-  await loadProfiles();
-  await loadDevices();
-  await loadLibrary();
-  loadContinueListening();
-  loadCards();
-  loadPlaylists();
-  loadHouseholdYotoCards();
+  const yotoOk = await checkYotoAuthStatus(false);
+  if (yotoOk) {
+    await loadProfiles();
+    await loadDevices();
+    await loadLibrary();
+    loadContinueListening();
+    loadCards();
+    loadPlaylists();
+    loadHouseholdYotoCards();
+    pollPlayerStatus();
+  }
 
-  // Start polling player status every 3.5s
+  // Start polling player status every 3.5s (only while Yoto token is healthy)
   if (pollInterval) clearInterval(pollInterval);
-  pollInterval = setInterval(pollPlayerStatus, 3500);
+  pollInterval = setInterval(() => {
+    if (yotoTokenValid) pollPlayerStatus();
+  }, 3500);
+
+  // Periodically check Yoto token health every 15s
+  if (authCheckInterval) clearInterval(authCheckInterval);
+  authCheckInterval = setInterval(() => checkYotoAuthStatus(false), 15000);
 }
 
 // -----------------------------------------------------------------------------

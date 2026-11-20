@@ -1,13 +1,15 @@
-import unittest
-import json
-import time
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Ensure sample app path is loaded
 app_dir = Path(__file__).parent.parent
 if str(app_dir) not in sys.path:
     sys.path.insert(0, str(app_dir))
+
+import tests.test_isolation  # noqa: F401 - must precede app/database imports
+import unittest
+import json
+import time
 
 from app import app
 from core.config import CUSTOM_ICONS_DIR

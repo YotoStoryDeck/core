@@ -3,6 +3,7 @@ Unit tests for StoryDeck Core Bridge Engine & Playlist Management.
 Tests slot and track CRUD, profile card assignments, delivery mode overrides,
 Yoto Cloud playlist classification, manual deletions, LRU pruning, and catalog deduplication.
 """
+import tests.test_isolation  # noqa: F401 - must precede app/database/clients imports
 import unittest
 from unittest.mock import MagicMock, patch
 import json

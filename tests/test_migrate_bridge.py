@@ -1,6 +1,7 @@
 """
 Unit test for legacy Yoto Bridge state migration script.
 """
+import tests.test_isolation  # noqa: F401 - must precede database/app imports
 import unittest
 import json
 from pathlib import Path

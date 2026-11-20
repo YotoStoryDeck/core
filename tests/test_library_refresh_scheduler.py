@@ -1,11 +1,13 @@
-import unittest
-import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 app_dir = Path(__file__).parent.parent
 if str(app_dir) not in sys.path:
     sys.path.insert(0, str(app_dir))
+
+import tests.test_isolation  # noqa: F401 - must precede app/database imports
+import unittest
+import json
 
 from app import app
 import database

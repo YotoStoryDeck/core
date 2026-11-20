@@ -15,8 +15,9 @@ import database
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
-# Load local environment variables
-load_dotenv()
+# Load local environment variables (skipped during isolated unit tests)
+if os.getenv("STORYDECK_TESTING", "").lower() not in ("1", "true", "yes"):
+    load_dotenv()
 
 # Setup logging
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()

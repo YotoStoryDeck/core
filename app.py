@@ -8,14 +8,16 @@ controller.
 ==============================================================================
 """
 
+import os
 from pathlib import Path
 from flask import Flask, jsonify
 import database
 from core.config import SECRET_KEY, PORT, logger
-from routes import register_blueprints
 
-# Initialize SQLite database and auto-migrate schema
+# Initialize SQLite database and auto-migrate schema before importing routes/clients
 database.init_db()
+
+from routes import register_blueprints
 
 # Create Flask application
 base_dir = Path(__file__).parent
@@ -38,9 +40,11 @@ logger.info("============================================================")
 logger.info(" 📻 StoryDeck Core Engine - Version: %s", _version)
 logger.info("============================================================")
 
-# Start background library refresh scheduler
-from core.scheduler import start_scheduler
-start_scheduler()
+# Start background library refresh scheduler (disabled in isolated test runs)
+if os.getenv("STORYDECK_TESTING", "").lower() not in ("1", "true", "yes") and \
+   os.getenv("STORYDECK_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
+    from core.scheduler import start_scheduler
+    start_scheduler()
 
 # Version Endpoint
 @app.route("/version", methods=["GET"])

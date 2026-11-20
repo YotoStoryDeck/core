@@ -6,6 +6,7 @@ Verifies that:
 3. Master library remains full (e.g. 217+ books), while child accounts are restricted (e.g. 43 books).
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -13,10 +14,13 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import clients
+import tests.test_isolation  # noqa: F401 - must precede app/database/clients imports
 import database
+database.init_db()
+import clients
 
 
+@unittest.skipUnless(os.getenv("STORYDECK_LIVE_ABS_TESTS") == "1", "Opt-in live homelab ABS integration test")
 class TestAbsProfileScoping(unittest.TestCase):
 
     def setUp(self):

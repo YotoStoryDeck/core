@@ -5,6 +5,7 @@ Consolidated audio streaming, card slot inventory, and Yoto Cloud playlist manag
 from __future__ import annotations
 import io
 import re
+import time
 import logging
 from typing import Dict, Any, List, Optional
 from flask import Blueprint, request, Response, jsonify, send_file
@@ -610,6 +611,25 @@ def trigger_lru_prune():
 # -----------------------------------------------------------------------------
 # 4. Mobile Front Portal Player & Catalog Endpoints
 # -----------------------------------------------------------------------------
+
+@bridge_bp.route("/api/yoto/auth-status", methods=["GET"])
+@require_auth
+def get_yoto_auth_status():
+    """Reports live Yoto API OAuth token health for Parent Portal status indicator & feature lockout."""
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+    if not clients.yoto_client:
+        return jsonify({
+            "ok": False,
+            "connected": False,
+            "token_valid": False,
+            "configured": False,
+            "mode": "direct",
+            "reason": "not_configured",
+            "error": "Yoto API client is not initialized. Open Admin Settings to connect Yoto.",
+            "checked_at": time.time()
+        })
+    return jsonify(clients.yoto_client.get_auth_status(verify=True, force=force))
+
 
 @bridge_bp.route("/api/player/devices", methods=["GET"])
 @require_auth

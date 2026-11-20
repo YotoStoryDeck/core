@@ -6,6 +6,7 @@ Unit and integration tests for Phase 2 deliverables (DLP-023 & DLP-019):
 - Yoto lastPlayedAt & ABS user mediaProgress.lastUpdate ingestion + scheduled LRU pruning
 - Daily wall-clock catalog rotation trigger based on profile catalog_rotation_hour
 """
+import tests.test_isolation  # noqa: F401 - must precede app/database/clients imports
 import json
 import shutil
 import subprocess
