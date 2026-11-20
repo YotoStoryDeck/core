@@ -3,7 +3,7 @@ Audiobookshelf API client for library, item, and user metadata querying.
 """
 
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import requests
 from core.config import logger
 
@@ -293,3 +293,153 @@ class ABSClient:
         except Exception as e:
             logger.error("Exception fetching ABS server tags: %s", e)
         return []
+
+    def resolve_token_for_profile(self, profile_id: Optional[str] = None,
+                                  device_id: Optional[str] = None) -> Optional[str]:
+        """
+        Resolves the Audiobookshelf Bearer token scoped to a child profile or Yoto player ID,
+        falling back to the master API key if no profile mapping exists.
+        """
+        if not self.base_url:
+            return None
+        try:
+            import database
+            profiles = database.get_all_profiles()
+            target_cfg = None
+            if profile_id and profile_id in profiles:
+                target_cfg = profiles[profile_id]
+            elif device_id:
+                for p_cfg in profiles.values():
+                    if p_cfg.get("default_player_id") == device_id or device_id in (p_cfg.get("player_ids") or []):
+                        target_cfg = p_cfg
+                        break
+
+            if target_cfg:
+                explicit = (target_cfg.get("abs_api_key") or target_cfg.get("abs_token") or "").strip()
+                if explicit:
+                    return explicit
+                uname = (target_cfg.get("abs_username") or "").strip()
+                if uname:
+                    resolved = self.get_user_token(uname)
+                    if resolved:
+                        return resolved
+        except Exception as e:
+            logger.debug("Profile token resolution notice (%s/%s): %s", profile_id, device_id, e)
+
+        return self.api_key or None
+
+    def get_media_progress(self, item_id: str, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Fetches saved listening progress for an Audiobookshelf library item."""
+        if not item_id or not self.base_url:
+            return None
+        try:
+            res = requests.get(
+                f"{self.base_url}/api/me/progress/{item_id}",
+                headers=self.get_headers(token),
+                timeout=8
+            )
+            if res.status_code == 200:
+                return res.json()
+        except Exception as e:
+            logger.debug("ABS get_media_progress notice for %s: %s", item_id, e)
+        return None
+
+    def patch_media_progress(self, item_id: str, current_time: float, duration: float,
+                             is_finished: bool = False, token: Optional[str] = None) -> bool:
+        """Directly updates listening progress on Audiobookshelf via PATCH /api/me/progress/{id}."""
+        if not item_id or not self.base_url:
+            return False
+        dur = float(duration or 0.0)
+        cur_t = max(0.0, float(current_time or 0.0))
+        progress = 1.0 if is_finished else (min(1.0, cur_t / dur) if dur > 0 else 0.0)
+        payload = {
+            "currentTime": round(cur_t, 1),
+            "duration": dur,
+            "progress": round(progress, 4),
+            "isFinished": bool(is_finished),
+        }
+        try:
+            res = requests.patch(
+                f"{self.base_url}/api/me/progress/{item_id}",
+                headers=self.get_headers(token),
+                json=payload,
+                timeout=8
+            )
+            return res.status_code in (200, 204)
+        except Exception as e:
+            logger.warning("ABS patch_media_progress error for %s: %s", item_id, e)
+            return False
+
+    def start_playback_session(self, item_id: str, device_id: str, device_name: str = "Yoto",
+                               token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Opens an Audiobookshelf playback session via POST /api/items/{id}/play."""
+        if not item_id or not self.base_url:
+            return None
+        payload = {
+            "deviceInfo": {
+                "deviceId": f"yoto-{device_id or 'storydeck'}",
+                "clientName": "StoryDeck Core",
+                "deviceName": device_name or "Yoto"
+            },
+            "forceDirectPlay": True,
+            "forceTranscode": False,
+            "mediaPlayer": "storydeck-core",
+            "supportedMimeTypes": ["audio/mpeg", "audio/mp4", "audio/flac", "audio/ogg", "audio/aac"]
+        }
+        try:
+            res = requests.post(
+                f"{self.base_url}/api/items/{item_id}/play",
+                headers=self.get_headers(token),
+                json=payload,
+                timeout=10
+            )
+            if res.status_code == 200:
+                return res.json()
+            logger.debug("ABS start_playback_session returned %d for %s", res.status_code, item_id)
+        except Exception as e:
+            logger.debug("ABS start_playback_session notice for %s: %s", item_id, e)
+        return None
+
+    def sync_playback_session(self, session_id: str, current_time: float, time_listened: float,
+                              duration: float, token: Optional[str] = None) -> Tuple[bool, int]:
+        """Reports interim playback progress to an open Audiobookshelf session."""
+        if not session_id or not self.base_url:
+            return False, 0
+        payload = {
+            "currentTime": round(max(0.0, float(current_time or 0.0)), 1),
+            "timeListened": round(max(0.0, float(time_listened or 0.0)), 1),
+            "duration": float(duration or 0.0)
+        }
+        try:
+            res = requests.post(
+                f"{self.base_url}/api/session/{session_id}/sync",
+                headers=self.get_headers(token),
+                json=payload,
+                timeout=8
+            )
+            return res.status_code in (200, 204), res.status_code
+        except Exception as e:
+            logger.debug("ABS sync_playback_session notice for %s: %s", session_id, e)
+            return False, 0
+
+    def close_playback_session(self, session_id: str, current_time: float, time_listened: float,
+                               duration: float, token: Optional[str] = None) -> bool:
+        """Closes an active Audiobookshelf playback session with final listening telemetry."""
+        if not session_id or not self.base_url:
+            return False
+        payload = {
+            "currentTime": round(max(0.0, float(current_time or 0.0)), 1),
+            "timeListened": round(max(0.0, float(time_listened or 0.0)), 1),
+            "duration": float(duration or 0.0)
+        }
+        try:
+            res = requests.post(
+                f"{self.base_url}/api/session/{session_id}/close",
+                headers=self.get_headers(token),
+                json=payload,
+                timeout=8
+            )
+            return res.status_code in (200, 204)
+        except Exception as e:
+            logger.debug("ABS close_playback_session notice for %s: %s", session_id, e)
+            return False

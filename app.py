@@ -45,6 +45,8 @@ if os.getenv("STORYDECK_TESTING", "").lower() not in ("1", "true", "yes") and \
    os.getenv("STORYDECK_DISABLE_SCHEDULER", "").lower() not in ("1", "true", "yes"):
     from core.scheduler import start_scheduler
     start_scheduler()
+    from core.bridge import start_bridge_services
+    start_bridge_services()
 
 # Version Endpoint
 @app.route("/version", methods=["GET"])

@@ -15,6 +15,8 @@ from core.auth import require_auth, require_admin
 from core.bridge.manager import get_bridge_manager
 from core.bridge.streamer import AudioStreamer, AudioTrackSource
 from core.bridge.offline import get_offline_manager, prune_evicted_profile_playlists
+from core.bridge.mqtt_client import get_mqtt_bridge
+from core.bridge.playback import get_playback_manager
 
 logger = logging.getLogger("storydeck.routes.bridge")
 bridge_bp = Blueprint("bridge", __name__)
@@ -75,8 +77,8 @@ def stream_track_audio(slot_id: str, track_idx: int):
 
     sources: List[AudioTrackSource] = []
     c_offset = 0.0
-    abs_token = clients.abs_client.token if hasattr(clients.abs_client, "token") else ""
-    abs_base = clients.abs_client.base_url if hasattr(clients.abs_client, "base_url") else ""
+    abs_token = getattr(clients.abs_client, "token", "") or getattr(clients.abs_client, "api_key", "") or ""
+    abs_base = getattr(clients.abs_client, "base_url", "") or ""
     auth_hdr = f"Bearer {abs_token}" if abs_token else ""
 
     for af in audio_files:
@@ -109,18 +111,34 @@ def stream_track_audio(slot_id: str, track_idx: int):
     req_start_sec = start_sec + seek_sec
     req_end_sec = min(end_sec, start_sec + streamer.bytes_to_seconds(byte_end + 1, speed))
 
+    pb_mgr = get_playback_manager()
+    pb_session = pb_mgr.open_stream(
+        slot,
+        track,
+        byte_start=byte_start,
+        speed=speed,
+        byterate=streamer.byterate,
+        device_id=request.args.get("device_id", "")
+    )
+
     def generate_chunks():
         bytes_sent = 0
-        for chunk in streamer.stream_segment(sources, req_start_sec, req_end_sec, auth_header=auth_hdr, speed=speed):
-            remaining = content_length - bytes_sent
-            if remaining <= 0:
-                break
-            if len(chunk) > remaining:
-                yield chunk[:remaining]
-                bytes_sent += remaining
-                break
-            yield chunk
-            bytes_sent += len(chunk)
+        try:
+            for chunk in streamer.stream_segment(sources, req_start_sec, req_end_sec, auth_header=auth_hdr, speed=speed):
+                remaining = content_length - bytes_sent
+                if remaining <= 0:
+                    break
+                if len(chunk) > remaining:
+                    out_chunk = chunk[:remaining]
+                    yield out_chunk
+                    bytes_sent += remaining
+                    pb_mgr.record_bytes(pb_session, len(out_chunk))
+                    break
+                yield chunk
+                bytes_sent += len(chunk)
+                pb_mgr.record_bytes(pb_session, len(chunk))
+        finally:
+            pb_mgr.close_stream(pb_session, force_sync=True)
 
     status_code = 206 if range_header else 200
     headers = {
@@ -705,6 +723,8 @@ def start_player_card():
     if not device_id or not card_id:
         return jsonify({"error": "device_id and card_id are required"}), 400
 
+    get_playback_manager().expect(device_id, card_id)
+
     # Try Bridge-First play relay if configured
     creds = database.get_api_credentials()
     if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
@@ -722,11 +742,26 @@ def start_player_card():
         except Exception as e:
             logger.debug("Bridge /api/play relay notice: %s", e)
 
+    mqtt = get_mqtt_bridge()
+    if mqtt.is_connected and mqtt.play(device_id, card_id, track=chapter):
+        return jsonify({"ok": True, "device_id": device_id, "card_id": card_id, "chapter": chapter, "via": "mqtt"})
+
     if not clients.yoto_client:
         return jsonify({"error": "Yoto client not configured"}), 503
 
     ok = clients.yoto_client.start_playback(device_id, card_id, chapter=chapter)
     return jsonify({"ok": ok, "device_id": device_id, "card_id": card_id, "chapter": chapter})
+
+
+@bridge_bp.route("/api/bridge/mqtt/status", methods=["GET"])
+@require_auth
+def get_bridge_mqtt_status():
+    """Returns embedded Yoto MQTT connection telemetry and active ABS stream playback sessions."""
+    return jsonify({
+        "ok": True,
+        "mqtt": get_mqtt_bridge().get_status_summary(),
+        "active_sessions": get_playback_manager().get_active_sessions_summary()
+    })
 
 
 @bridge_bp.route("/api/library/profile/<profile_id>", methods=["GET"])
