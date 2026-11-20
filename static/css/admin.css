@@ -445,20 +445,34 @@ body.dark-theme {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
-  transition: transform 0.25s ease, background-color 0.2s;
-  font-size: 10px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
   color: var(--text-secondary);
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.card-header-clickable:hover .expand-chevron {
+  color: var(--text-primary);
+  background: var(--border-subtle);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .expand-chevron.expanded {
   transform: rotate(180deg);
   background: var(--border-subtle);
   color: var(--text-primary);
+}
+
+.expand-chevron svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  pointer-events: none;
 }
 
 /* Modals */
@@ -851,32 +865,6 @@ tr.row-selected:hover {
 @keyframes pulse-update {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.85; transform: scale(1.03); }
-}
-
-/* Collapsible Settings Cards */
-.card-header-clickable {
-  cursor: pointer;
-  user-select: none;
-  transition: opacity 0.15s ease;
-}
-
-.card-header-clickable:hover {
-  opacity: 0.85;
-}
-
-.expand-chevron {
-  display: inline-block;
-  font-size: 13px;
-  color: var(--text-secondary);
-  transition: transform 0.2s ease, color 0.15s ease;
-}
-
-.card-header-clickable:hover .expand-chevron {
-  color: var(--text-primary);
-}
-
-.expand-chevron.expanded {
-  transform: rotate(180deg);
 }
 
 /* Unsaved Changes Badges & State Pulsing */
