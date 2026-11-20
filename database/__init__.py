@@ -20,7 +20,9 @@ from .devices import (
 )
 from .media import (
     upsert_media_items, get_media_item_by_id, get_catalog_matrix, prune_stale_media_items,
-    record_playback, get_playback_history
+    record_playback, get_playback_history,
+    get_all_series_overrides, set_media_series_override, delete_media_series_override,
+    batch_set_media_series_overrides
 )
 from .curation import (
     sanitize_display_text, get_catalog_items_for_profile, set_item_highlight,
@@ -45,6 +47,8 @@ __all__ = [
     "revoke_esp32_device", "delete_esp32_device", "prune_stale_devices",
     "upsert_media_items", "get_media_item_by_id", "get_catalog_matrix", "prune_stale_media_items",
     "record_playback", "get_playback_history",
+    "get_all_series_overrides", "set_media_series_override", "delete_media_series_override",
+    "batch_set_media_series_overrides",
     "sanitize_display_text", "get_catalog_items_for_profile", "set_item_highlight",
     "batch_update_media_highlight", "set_item_physical", "batch_update_media_physical",
     "batch_update_profile_media_permissions",

@@ -9,6 +9,146 @@ from .connection import get_db_connection, logger
 from .profiles import get_all_profiles, get_shared_rules
 from .settings import get_system_settings
 
+YOTO_MEDIA_TYPES = ("yoto", "yoto_myo")
+
+
+def get_all_series_overrides() -> Dict[str, Dict[str, str]]:
+    """Returns all manual parent series/sequence overrides keyed by media_id."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT media_id, series, series_order, updated_at FROM media_series_overrides;")
+        return {
+            r["media_id"]: {
+                "series": r["series"] or "",
+                "series_order": r["series_order"] or "",
+                "updated_at": str(r["updated_at"] or ""),
+            }
+            for r in cur.fetchall()
+        }
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        conn.close()
+
+
+def set_media_series_override(media_id: str, series: str, series_order: str = "") -> Dict[str, Any]:
+    """Sets or updates a manual parent series/sequence override for a Yoto card."""
+    clean_id = (media_id or "").strip()
+    clean_series = (series or "").strip()
+    clean_order = str(series_order if series_order is not None else "").strip()
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, type FROM media_items WHERE id = ?;", (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            raise KeyError(f"Media item '{clean_id}' not found.")
+        if row["type"] not in YOTO_MEDIA_TYPES:
+            raise ValueError(
+                "Manual series overrides are only supported for Yoto cards (Audiobookshelf series are managed natively in ABS)."
+            )
+
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO media_series_overrides (media_id, series, series_order, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(media_id) DO UPDATE SET
+                    series = excluded.series,
+                    series_order = excluded.series_order,
+                    updated_at = CURRENT_TIMESTAMP;
+                """,
+                (clean_id, clean_series, clean_order),
+            )
+        return {
+            "media_id": clean_id,
+            "series": clean_series,
+            "series_order": clean_order,
+            "is_series_overridden": True,
+        }
+    finally:
+        conn.close()
+
+
+def delete_media_series_override(media_id: str) -> bool:
+    """Deletes a manual series override so the card reverts to upstream automatic detection."""
+    clean_id = (media_id or "").strip()
+    if not clean_id:
+        return False
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.execute("DELETE FROM media_series_overrides WHERE media_id = ?;", (clean_id,))
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def batch_set_media_series_overrides(series: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Atomically assigns a shared series name and sequence numbers across multiple Yoto cards."""
+    clean_series = (series or "").strip()
+    dedup_items: List[Dict[str, str]] = []
+    seen_ids = set()
+    for raw_it in items or []:
+        if not isinstance(raw_it, dict):
+            continue
+        m_id = str(raw_it.get("id") or raw_it.get("media_id") or "").strip()
+        if not m_id or m_id in seen_ids:
+            continue
+        seen_ids.add(m_id)
+        raw_seq = raw_it.get("sequence")
+        if raw_seq is None:
+            raw_seq = raw_it.get("series_order")
+        if raw_seq is None:
+            raw_seq = raw_it.get("order")
+        seq_str = str(raw_seq if raw_seq is not None else "").strip()
+        dedup_items.append({"id": m_id, "sequence": seq_str})
+
+    if not dedup_items:
+        raise ValueError("At least one valid media item is required.")
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        ids = [it["id"] for it in dedup_items]
+        placeholders = ",".join("?" for _ in ids)
+        cur.execute(f"SELECT id, type FROM media_items WHERE id IN ({placeholders});", ids)
+        rows_by_id = {r["id"]: r["type"] for r in cur.fetchall()}
+
+        missing_ids = [mid for mid in ids if mid not in rows_by_id]
+        if missing_ids:
+            raise KeyError(f"Media item(s) not found: {', '.join(missing_ids)}")
+
+        non_yoto_ids = [mid for mid in ids if rows_by_id[mid] not in YOTO_MEDIA_TYPES]
+        if non_yoto_ids:
+            raise ValueError(
+                f"Manual series overrides are only supported for Yoto cards. Rejected non-Yoto item(s): {', '.join(non_yoto_ids)}"
+            )
+
+        with conn:
+            for it in dedup_items:
+                conn.execute(
+                    """
+                    INSERT INTO media_series_overrides (media_id, series, series_order, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(media_id) DO UPDATE SET
+                        series = excluded.series,
+                        series_order = excluded.series_order,
+                        updated_at = CURRENT_TIMESTAMP;
+                    """,
+                    (it["id"], clean_series, it["sequence"]),
+                )
+
+        return {
+            "series": clean_series,
+            "updated_count": len(dedup_items),
+            "items": dedup_items,
+        }
+    finally:
+        conn.close()
+
 def upsert_media_items(items: List[Dict[str, Any]]) -> int:
     """Caches discovered Yoto cards or ABS books into media_items table, invalidating cached thumbnails whenever an item's cover changes."""
     conn = get_db_connection()
@@ -77,6 +217,17 @@ def get_catalog_matrix() -> Dict[str, Any]:
         cur = conn.cursor()
         cur.execute("SELECT * FROM media_items;")
         media_rows = cur.fetchall()
+        try:
+            cur.execute("SELECT media_id, series, series_order FROM media_series_overrides;")
+            overrides = {
+                r["media_id"]: {
+                    "series": r["series"] or "",
+                    "series_order": r["series_order"] or "",
+                }
+                for r in cur.fetchall()
+            }
+        except sqlite3.OperationalError:
+            overrides = {}
         # Sort with same methodology as Controller: highlight first, then title ignoring leading articles (A, An, The)
         def _matrix_sort_key(r):
             t = (r["title"] or "").strip()
@@ -100,11 +251,26 @@ def get_catalog_matrix() -> Dict[str, Any]:
                 raw_data = {}
             tags = raw_data.get("tags") or []
             library_id = raw_data.get("library_id") or ""
-            series = raw_data.get("series") or ""
-            series_order = raw_data.get("series_order") or ""
-            series_list = raw_data.get("series_list") or []
-            if not series_list and series:
-                series_list = [{"name": series, "order": series_order}]
+            auto_series = raw_data.get("series") or ""
+            auto_series_order = raw_data.get("series_order") or ""
+            raw_series_list = raw_data.get("series_list") or []
+            if not auto_series and raw_series_list and isinstance(raw_series_list[0], dict):
+                auto_series = raw_series_list[0].get("name") or ""
+                auto_series_order = str(raw_series_list[0].get("order") or "")
+
+            if m_type in YOTO_MEDIA_TYPES and m_id in overrides:
+                ov = overrides[m_id]
+                is_series_overridden = True
+                series = ov["series"]
+                series_order = ov["series_order"]
+                series_list = [{"name": series, "order": series_order}] if series else []
+            else:
+                is_series_overridden = False
+                series = raw_data.get("series") or ""
+                series_order = raw_data.get("series_order") or ""
+                series_list = raw_series_list
+                if not series_list and series:
+                    series_list = [{"name": series, "order": series_order}]
             profile_states = {}
             for pid, pcfg in profiles.items():
                 yoto_rules = pcfg.get("yoto", {})
@@ -163,6 +329,9 @@ def get_catalog_matrix() -> Dict[str, Any]:
                 "series": series,
                 "series_order": series_order,
                 "series_list": series_list,
+                "is_series_overridden": is_series_overridden,
+                "auto_series": auto_series,
+                "auto_series_order": auto_series_order,
                 "profiles": profile_states
             })
         return {
@@ -202,6 +371,12 @@ def prune_stale_media_items(valid_ids: List[str], media_types: List[str] = None)
                 conn.execute(
                     f"DELETE FROM profile_media_permissions WHERE media_id NOT IN (SELECT id FROM media_items);"
                 )
+                try:
+                    conn.execute(
+                        "DELETE FROM media_series_overrides WHERE media_id NOT IN (SELECT id FROM media_items);"
+                    )
+                except sqlite3.OperationalError:
+                    pass
     finally:
         conn.close()
 

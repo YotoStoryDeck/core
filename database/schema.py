@@ -210,6 +210,17 @@ def init_db():
                 UNIQUE(profile_id, item_type, item_id)
             );
             """)
+            # 11. Parent Manual Series & Sequence Overrides (Yoto Cards - DLP-021)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS media_series_overrides (
+                media_id TEXT PRIMARY KEY,
+                series TEXT NOT NULL DEFAULT '',
+                series_order TEXT NOT NULL DEFAULT '',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_media_series_overrides_series ON media_series_overrides(series);")
         # Execute incremental schema migrations based on PRAGMA user_version
         run_schema_migrations(conn)
         # Check and migrate legacy config.json if database has 0 profiles
@@ -225,7 +236,7 @@ def init_db():
 # ============================================================================
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 def run_schema_migrations(conn: sqlite3.Connection):
     """
     Applies incremental database schema migrations sequentially using SQLite's
@@ -428,6 +439,22 @@ def run_schema_migrations(conn: sqlite3.Connection):
 
             conn.execute("PRAGMA user_version = 10;")
         logger.info("Migrated SQLite schema to version 10 (bridge_slots, tracks, permissions, and profile playback preferences).")
+
+    # Version 10 -> 11: Yoto Card Manual Series & Sequence Overrides (DLP-021)
+    if version < 11:
+        with conn:
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS media_series_overrides (
+                media_id TEXT PRIMARY KEY,
+                series TEXT NOT NULL DEFAULT '',
+                series_order TEXT NOT NULL DEFAULT '',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_media_series_overrides_series ON media_series_overrides(series);")
+            conn.execute("PRAGMA user_version = 11;")
+        logger.info("Migrated SQLite schema to version 11 (added media_series_overrides table).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================
