@@ -10,9 +10,11 @@ let libraryItems = [];
 let cardSlots = [];
 let cloudPlaylists = [];
 let activeBook = null;
+let householdYotoCards = [];
 let currentPlaylistFilter = "all";
 let currentVolumeMax = 100;
 let pollInterval = null;
+let isScrubbing = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   initPortal();
@@ -35,6 +37,7 @@ function switchTab(tabName) {
   if (tabName === "cards") loadCards();
   if (tabName === "playlists") loadPlaylists();
   if (tabName === "library") loadLibrary();
+  if (tabName === "player") loadContinueListening();
 }
 
 // -----------------------------------------------------------------------------
@@ -45,8 +48,10 @@ async function initPortal() {
   await loadProfiles();
   await loadDevices();
   await loadLibrary();
+  loadContinueListening();
   loadCards();
   loadPlaylists();
+  loadHouseholdYotoCards();
 
   // Start polling player status every 3.5s
   if (pollInterval) clearInterval(pollInterval);
@@ -75,9 +80,18 @@ async function loadProfiles() {
       select.appendChild(opt);
     });
 
+    // Append All Household Library scope option
+    const allOpt = document.createElement("option");
+    allOpt.value = "__all__";
+    allOpt.innerText = "📚 All Household Library";
+    select.appendChild(allOpt);
+
     if (pids.length > 0 && !activeProfileId) {
       activeProfileId = pids[0];
       select.value = activeProfileId;
+    } else if (!activeProfileId) {
+      activeProfileId = "__all__";
+      select.value = "__all__";
     }
   } catch (err) {
     console.error("Failed to load profiles:", err);
@@ -93,10 +107,15 @@ function switchActiveProfile(profileId) {
     if (devSelect) devSelect.value = activeDeviceId;
   }
   const childLabel = document.getElementById("libraryChildNameLabel");
-  if (childLabel && p) {
-    childLabel.innerText = `Showing books for ${p.display_name || profileId}`;
+  if (childLabel) {
+    if (profileId === "__all__") {
+      childLabel.innerText = "Showing all household books";
+    } else if (p) {
+      childLabel.innerText = `Showing books for ${p.display_name || profileId}`;
+    }
   }
   loadLibrary();
+  loadContinueListening();
 }
 
 // -----------------------------------------------------------------------------
@@ -230,13 +249,57 @@ async function pollPlayerStatus() {
 
       currentPosition = data.playback.position || data.position || 0;
       currentDuration = data.playback.duration || data.duration || 1;
-      const pct = currentDuration > 0 ? Math.min(100, (currentPosition / currentDuration) * 100) : 0;
-      const scrubBar = document.getElementById("playerScrubBar");
-      if (scrubBar) scrubBar.value = pct;
-      const elElapsed = document.getElementById("playerTimeElapsed");
-      if (elElapsed) elElapsed.innerText = formatSeconds(currentPosition);
-      const elRem = document.getElementById("playerTimeRemaining");
-      if (elRem) elRem.innerText = `-${formatSeconds(Math.max(0, currentDuration - currentPosition))}`;
+      if (!isScrubbing) {
+        const pct = currentDuration > 0 ? Math.min(100, (currentPosition / currentDuration) * 100) : 0;
+        const scrubBar = document.getElementById("playerScrubBar");
+        if (scrubBar) scrubBar.value = pct;
+        const elElapsed = document.getElementById("playerTimeElapsed");
+        if (elElapsed) elElapsed.innerText = formatSeconds(currentPosition);
+        const elRem = document.getElementById("playerTimeRemaining");
+        if (elRem) elRem.innerText = `-${formatSeconds(Math.max(0, currentDuration - currentPosition))}`;
+      }
+    }
+
+    // Sync Playback Speed Select
+    if (data && data.speed) {
+      const speedSel = document.getElementById("playerSpeedSelect");
+      if (speedSel) {
+        const speedStr = String(parseFloat(data.speed));
+        if (Array.from(speedSel.options).some(o => o.value === speedStr)) {
+          speedSel.value = speedStr;
+        }
+      }
+    }
+
+    // Render Player Telemetry Badges (Online/Offline, Day/Night, Battery, Sleep Timer)
+    const badgesEl = document.getElementById("playerTelemetryBadges");
+    if (badgesEl && data) {
+      const pills = [];
+      pills.push(data.online
+        ? `<span class="badge badge-success" style="font-size: 10px;">🟢 Online</span>`
+        : `<span class="badge badge-subtle" style="font-size: 10px;">⚪ Offline</span>`);
+      if (data.day_mode !== undefined && data.day_mode !== null) {
+        pills.push(data.day_mode === 0
+          ? `<span class="badge badge-info" style="font-size: 10px;">🌙 Night Mode</span>`
+          : `<span class="badge badge-warning" style="font-size: 10px;">☀️ Day Mode</span>`);
+      }
+      if (data.battery !== undefined && data.battery !== null) {
+        pills.push(`<span class="badge badge-subtle" style="font-size: 10px;">${data.charging ? '⚡' : '🔋'} ${data.battery}%</span>`);
+      }
+      if (data.sleep_timer_remaining && data.sleep_timer_remaining > 0) {
+        const minsLeft = Math.ceil(data.sleep_timer_remaining / 60);
+        pills.push(`<span class="badge badge-warning" style="font-size: 10px;">⏲️ Sleep: ${minsLeft}m</span>`);
+      }
+      badgesEl.innerHTML = pills.join("");
+    }
+    const sleepLabel = document.getElementById("sleepTimerStatusLabel");
+    if (sleepLabel) {
+      if (data && data.sleep_timer_remaining && data.sleep_timer_remaining > 0) {
+        const minsLeft = Math.ceil(data.sleep_timer_remaining / 60);
+        sleepLabel.innerText = `🌙 Bedtime Sleep Timer (Active: ${minsLeft}m remaining)`;
+      } else {
+        sleepLabel.innerText = "🌙 Bedtime Sleep Timer";
+      }
     }
 
     // Volume with Ceiling Clamp Enforcement
@@ -322,19 +385,96 @@ async function onVolumeChange(val) {
 async function setSleepTimer(minutes) {
   if (!activeDeviceId) return;
   try {
-    await fetch("/api/player/transport", {
+    const res = await fetch("/api/player/transport", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device_id: activeDeviceId, action: "sleep_timer", minutes })
     });
-    alert(minutes > 0 ? `Bedtime sleep timer set for ${minutes} minutes.` : "Sleep timer cancelled.");
+    if (res.ok) {
+      await pollPlayerStatus();
+    }
   } catch (err) {
     console.error("Sleep timer error:", err);
   }
 }
 
-function onScrubChange(pct) {
-  // Seek position calculation
+function onScrubInput(pct) {
+  isScrubbing = true;
+  if (currentDuration > 0) {
+    const targetSec = Math.round((parseFloat(pct) / 100) * currentDuration);
+    const elElapsed = document.getElementById("playerTimeElapsed");
+    if (elElapsed) elElapsed.innerText = formatSeconds(targetSec);
+    const elRem = document.getElementById("playerTimeRemaining");
+    if (elRem) elRem.innerText = `-${formatSeconds(Math.max(0, currentDuration - targetSec))}`;
+  }
+}
+
+async function onScrubChange(pct) {
+  isScrubbing = false;
+  if (!activeDeviceId || currentDuration <= 0) return;
+  const targetSec = Math.round((parseFloat(pct) / 100) * currentDuration);
+  try {
+    await fetch("/api/player/transport", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: activeDeviceId, action: "seek", position: targetSec })
+    });
+    setTimeout(pollPlayerStatus, 400);
+  } catch (err) {
+    console.error("Seek error:", err);
+  }
+}
+
+async function onPlayerSpeedChange(speedVal) {
+  if (!activeDeviceId) return;
+  const speed = parseFloat(speedVal);
+  if (isNaN(speed)) return;
+  try {
+    await fetch("/api/player/transport", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: activeDeviceId, action: "speed", speed })
+    });
+    setTimeout(pollPlayerStatus, 400);
+  } catch (err) {
+    console.error("Speed change error:", err);
+  }
+}
+
+async function loadContinueListening() {
+  const container = document.getElementById("continueListeningList");
+  if (!container) return;
+  try {
+    const scope = activeProfileId || "__all__";
+    const res = await fetch(`/api/library/recent/${encodeURIComponent(scope)}`);
+    if (!res.ok) return;
+    const recentItems = await res.json();
+    container.innerHTML = "";
+    if (!recentItems || recentItems.length === 0) {
+      container.innerHTML = "<p class='text-secondary' style='font-size: 11px; margin: 0;'>No recent playback history yet. Start a book from the Library tab.</p>";
+      return;
+    }
+    recentItems.forEach(item => {
+      const card = document.createElement("div");
+      card.className = "list-item-card";
+      const thumbUrl = item.thumb || "/static/img/placeholder.png";
+      card.innerHTML = `
+        <div class="list-item-thumb">
+          <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(item.title)}" onerror="this.onerror=null;this.parentElement.innerText='📖'">
+        </div>
+        <div class="list-item-body">
+          <div class="list-item-title">${escapeHtml(item.title)}</div>
+          <div class="list-item-desc">${escapeHtml(item.author || "Audiobook")}${item.series ? ` • ${escapeHtml(item.series)}` : ""}</div>
+        </div>
+        <div>
+          <button class="btn btn-primary btn-sm" style="font-size: 11px; padding: 4px 10px;" onclick='openBookModal(${JSON.stringify(item).replace(/'/g, "&#39;")})'>▶️ Resume</button>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  } catch (err) {
+    console.error("Failed to load recent items:", err);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -425,7 +565,7 @@ function renderLibraryGrid(items) {
   });
 }
 
-function openBookModal(book) {
+async function openBookModal(book) {
   activeBook = book;
   const modal = document.getElementById("bookModal");
   document.getElementById("bookModalThumb").src = book.thumb || "/static/img/placeholder.png";
@@ -446,7 +586,46 @@ function openBookModal(book) {
   document.getElementById("optProfileDefaultMode").innerText = defMode === "offline" ? "Offline (Cache)" : "Streaming (Instant)";
   document.getElementById("bookModalModeSelect").value = "default";
 
+  // Reset and fetch book details (synopsis & chapters)
+  const synContainer = document.getElementById("bookModalSynopsisContainer");
+  const synText = document.getElementById("bookModalSynopsis");
+  const durBadge = document.getElementById("bookModalDurationBadge");
+  const chapSelect = document.getElementById("bookModalChapterSelect");
+  if (synContainer) synContainer.style.display = "none";
+  if (durBadge) durBadge.style.display = "none";
+  if (chapSelect) chapSelect.innerHTML = `<option value="1">Chapter 1</option>`;
+
   modal.style.display = "flex";
+
+  try {
+    const res = await fetch(`/api/library/book/${encodeURIComponent(book.id)}/details`);
+    if (res.ok) {
+      const details = await res.json();
+      if (details.description && synContainer && synText) {
+        synText.innerText = details.description.replace(/<[^>]*>/g, "");
+        synContainer.style.display = "block";
+      }
+      if (details.total_duration && durBadge) {
+        const hrs = Math.floor(details.total_duration / 3600);
+        const mins = Math.round((details.total_duration % 3600) / 60);
+        durBadge.innerText = hrs > 0 ? `⏱️ ${hrs}h ${mins}m` : `⏱️ ${mins}m`;
+        durBadge.style.display = "inline-block";
+      }
+      if (Array.isArray(details.tracks) && details.tracks.length > 0 && chapSelect) {
+        chapSelect.innerHTML = "";
+        details.tracks.forEach((tr, idx) => {
+          const chNum = tr.index || (idx + 1);
+          const durStr = tr.duration ? ` (${formatSeconds(tr.duration)})` : "";
+          const opt = document.createElement("option");
+          opt.value = String(chNum);
+          opt.innerText = `${chNum}. ${tr.title || "Chapter " + chNum}${durStr}`;
+          chapSelect.appendChild(opt);
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Book details fetch error:", err);
+  }
 }
 
 function closeBookModal() {
@@ -454,8 +633,11 @@ function closeBookModal() {
 }
 
 async function executeBookPlay() {
-  if (!activeBook || !activeProfileId) return;
+  if (!activeBook) return;
   const modeVal = document.getElementById("bookModalModeSelect").value;
+  const chapVal = parseInt(document.getElementById("bookModalChapterSelect")?.value || "1", 10) || 1;
+  const targetProfId = (activeProfileId && activeProfileId !== "__all__") ? activeProfileId : Object.keys(currentProfiles)[0];
+  if (!targetProfId) return;
 
   try {
     // 1. Assign book to profile primary card
@@ -463,7 +645,7 @@ async function executeBookPlay() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        profile_id: activeProfileId,
+        profile_id: targetProfId,
         abs_item_id: activeBook.id,
         mode: modeVal,
         title: activeBook.title,
@@ -486,7 +668,7 @@ async function executeBookPlay() {
         body: JSON.stringify({
           device_id: activeDeviceId,
           card_id: slot.yoto_card_id,
-          chapter: 1
+          chapter: chapVal
         })
       });
     }
@@ -605,7 +787,9 @@ function createCardItemElement(slot, isProfile) {
 
   const modeBadge = slot.mode === "offline"
     ? '<span class="badge badge-warning" style="font-size: 10px;">💾 Offline (Cached)</span>'
-    : '<span class="badge badge-info" style="font-size: 10px;">⚡ Streaming</span>';
+    : (slot.mode === "retail"
+        ? '<span class="badge badge-success" style="font-size: 10px;">💿 Official Yoto</span>'
+        : '<span class="badge badge-info" style="font-size: 10px;">⚡ Streaming</span>');
 
   const transcodeJob = slot.transcode;
   let progressHtml = "";
@@ -624,6 +808,10 @@ function createCardItemElement(slot, isProfile) {
     `;
   }
 
+  const curSpeed = parseFloat(slot.speed || 1.0);
+  const nextMode = slot.mode === "offline" ? "streaming" : "offline";
+  const nextModeLabel = slot.mode === "offline" ? "⚡ Stream" : "💾 Make Offline";
+
   el.innerHTML = `
     <div class="list-item-thumb">
       ${slot.abs_item_id ? `<img src="/api/cover/${escapeHtml(slot.abs_item_id)}" alt="Cover" onerror="this.onerror=null;this.parentElement.innerText='💳'">` : '💳'}
@@ -634,7 +822,20 @@ function createCardItemElement(slot, isProfile) {
       <div class="list-item-tags">
         ${modeBadge}
         ${slot.is_pinned ? '<span class="badge badge-success" style="font-size: 10px;">📌 Pinned</span>' : ''}
-        ${slot.speed && slot.speed !== 1.0 ? `<span class="badge" style="font-size: 10px;">${slot.speed}x</span>` : ''}
+        ${slot.own_place ? '<span class="badge badge-info" style="font-size: 10px;">📍 Own Place</span>' : '<span class="badge badge-subtle" style="font-size: 10px;">🔗 ABS Synced</span>'}
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center;">
+        <select class="form-control" style="width: 68px; font-size: 10px; padding: 2px 4px; height: 24px;" onchange="changeCardSpeed('${escapeHtml(slot.slot_id)}', this.value)" title="Slot Playback Speed">
+          <option value="0.75" ${curSpeed === 0.75 ? 'selected' : ''}>0.75x</option>
+          <option value="1" ${curSpeed === 1.0 ? 'selected' : ''}>1.0x</option>
+          <option value="1.25" ${curSpeed === 1.25 ? 'selected' : ''}>1.25x</option>
+          <option value="1.5" ${curSpeed === 1.5 ? 'selected' : ''}>1.5x</option>
+          <option value="2" ${curSpeed === 2.0 ? 'selected' : ''}>2.0x</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px;" onclick="toggleCardOwnPlace('${escapeHtml(slot.slot_id)}', ${!slot.own_place})" title="Toggle Own-Place Progress Isolation">
+          ${slot.own_place ? "🔗 Sync ABS" : "📍 Own Place"}
+        </button>
+        ${slot.abs_item_id ? `<button class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 2px 6px;" onclick="switchCardDeliveryMode('${escapeHtml(slot.slot_id)}', '${nextMode}')">${nextModeLabel}</button>` : ''}
       </div>
       ${progressHtml}
     </div>
@@ -644,6 +845,70 @@ function createCardItemElement(slot, isProfile) {
     </div>
   `;
   return el;
+}
+
+async function changeCardSpeed(slotId, speedVal) {
+  try {
+    await fetch(`/api/cards/${encodeURIComponent(slotId)}/speed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speed: parseFloat(speedVal) })
+    });
+    loadCards();
+  } catch (err) {
+    console.error("Card speed error:", err);
+  }
+}
+
+async function toggleCardOwnPlace(slotId, ownPlaceState) {
+  try {
+    await fetch(`/api/cards/${encodeURIComponent(slotId)}/own-place`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ own_place: ownPlaceState })
+    });
+    loadCards();
+  } catch (err) {
+    console.error("Own-place toggle error:", err);
+  }
+}
+
+async function switchCardDeliveryMode(slotId, mode) {
+  try {
+    const res = await fetch(`/api/cards/${encodeURIComponent(slotId)}/mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode })
+    });
+    if (res.ok) {
+      loadCards();
+    } else {
+      const errData = await res.json();
+      alert(errData.error || "Failed to switch card delivery mode.");
+    }
+  } catch (err) {
+    console.error("Mode switch error:", err);
+  }
+}
+
+async function loadHouseholdYotoCards() {
+  try {
+    const res = await fetch("/api/library/yoto");
+    if (!res.ok) return;
+    householdYotoCards = await res.json();
+    const sel = document.getElementById("newSlotYotoCardSelect");
+    if (sel) {
+      sel.innerHTML = `<option value="">-- Leave Empty / Assign Audiobook Later --</option>`;
+      householdYotoCards.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c.yoto_card_id || c.id;
+        opt.innerText = `💿 ${c.title}${c.author ? " (" + c.author + ")" : ""}`;
+        sel.appendChild(opt);
+      });
+    }
+  } catch (err) {
+    console.error("Failed to load household Yoto cards:", err);
+  }
 }
 
 async function toggleCardPin(slotId, pinState) {
@@ -672,6 +937,9 @@ async function deleteCardSlot(slotId) {
 function openAddCardModal() {
   document.getElementById("newSlotId").value = "";
   document.getElementById("newSlotTitle").value = "";
+  const sel = document.getElementById("newSlotYotoCardSelect");
+  if (sel) sel.value = "";
+  loadHouseholdYotoCards();
   document.getElementById("addCardModal").style.display = "flex";
 }
 
@@ -682,6 +950,7 @@ function closeAddCardModal() {
 async function executeCreateCardSlot() {
   const slotId = document.getElementById("newSlotId").value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
   const title = document.getElementById("newSlotTitle").value.trim();
+  const yotoCardId = document.getElementById("newSlotYotoCardSelect")?.value || "";
   if (!slotId) return alert("Slot ID is required");
 
   try {
@@ -691,6 +960,20 @@ async function executeCreateCardSlot() {
       body: JSON.stringify({ slot_id: slotId, title: title || slotId, kind: "permanent_myo" })
     });
     if (res.ok) {
+      if (yotoCardId) {
+        const matched = householdYotoCards.find(c => (c.yoto_card_id || c.id) === yotoCardId);
+        await fetch("/api/cards/assign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            slot_id: slotId,
+            yoto_card_id: yotoCardId,
+            title: title || (matched ? matched.title : slotId),
+            author: matched ? matched.author : "Official Yoto Card",
+            mode: "retail"
+          })
+        });
+      }
       closeAddCardModal();
       loadCards();
     } else {

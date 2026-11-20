@@ -224,14 +224,44 @@ class BridgeManager:
         database.record_playback(abs_item_id, profile_id)
         return slot
 
-    def assign_to_fleet_card(self, slot_id: str, abs_item_id: str,
+    def assign_to_fleet_card(self, slot_id: str, abs_item_id: str = "",
                              mode_override: Optional[str] = None,
-                             base_url: str = "") -> Dict[str, Any]:
-        """Assigns an ABS book to a named fleet card slot."""
+                             base_url: str = "", yoto_card_id: str = "",
+                             title: str = "", author: str = "") -> Dict[str, Any]:
+        """Assigns an ABS book or an Official Yoto card to a named fleet card slot."""
+        if yoto_card_id and not abs_item_id:
+            db_item = database.get_media_item_by_id(yoto_card_id) or {}
+            card_title = title or db_item.get("title") or f"Yoto Card {yoto_card_id}"
+            card_author = author or db_item.get("author") or "Yoto"
+            conn = database.get_db_connection()
+            try:
+                with conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        INSERT INTO bridge_slots (
+                            slot_id, abs_item_id, yoto_card_id, title, author,
+                            group_kind, kind, source, is_protected, mode, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 'yoto_official', 'permanent_myo', 'storydeck', 1, 'retail', CURRENT_TIMESTAMP)
+                        ON CONFLICT(slot_id) DO UPDATE SET
+                            abs_item_id = excluded.abs_item_id,
+                            yoto_card_id = excluded.yoto_card_id,
+                            title = excluded.title,
+                            author = excluded.author,
+                            group_kind = 'yoto_official',
+                            mode = 'retail',
+                            updated_at = CURRENT_TIMESTAMP;
+                    """, (slot_id, yoto_card_id, yoto_card_id, card_title, card_author))
+                    cur.execute("DELETE FROM bridge_tracks WHERE slot_id = ?;", (slot_id,))
+                return self.get_slot(slot_id) or {}
+            finally:
+                conn.close()
+
         mode = mode_override if mode_override and mode_override != "default" else "streaming"
         return self.assign_abs_book_to_slot(
             slot_id=slot_id,
             abs_item_id=abs_item_id,
+            title=title,
+            author=author,
             kind="permanent_myo",
             mode=mode,
             base_url=base_url

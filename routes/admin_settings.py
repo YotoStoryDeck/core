@@ -126,7 +126,7 @@ def admin_manage_abs_default_tags():
 @admin_settings_bp.route("/api/admin/settings/catalog", methods=["GET", "PUT"])
 @require_admin
 def admin_manage_catalog_settings():
-    """Gets or updates general catalog display and library refresh settings."""
+    """Gets or updates general catalog display, library refresh, and LAN sitter access settings."""
     from core.scheduler import get_refresh_status
     if request.method == "GET":
         settings = database.get_system_settings()
@@ -136,6 +136,7 @@ def admin_manage_catalog_settings():
             "exclude_single_card_series": bool(settings.get("exclude_single_card_series", True)),
             "auto_library_refresh_enabled": bool(settings.get("auto_library_refresh_enabled", True)),
             "auto_library_refresh_hours": float(settings.get("auto_library_refresh_hours", 6)),
+            "lan_sitter_access_enabled": bool(settings.get("lan_sitter_access_enabled", True)),
             "scheduler_status": status
         })
 
@@ -160,6 +161,10 @@ def admin_manage_catalog_settings():
                 refresh_hours = 6.0
             database.set_system_setting("auto_library_refresh_hours", refresh_hours)
 
+        if "lan_sitter_access_enabled" in data:
+            lan_val = bool(data.get("lan_sitter_access_enabled", True))
+            database.set_system_setting("lan_sitter_access_enabled", lan_val)
+
         settings = database.get_system_settings()
         status = get_refresh_status()
         return jsonify({
@@ -167,6 +172,7 @@ def admin_manage_catalog_settings():
             "exclude_single_card_series": bool(settings.get("exclude_single_card_series", True)),
             "auto_library_refresh_enabled": bool(settings.get("auto_library_refresh_enabled", True)),
             "auto_library_refresh_hours": float(settings.get("auto_library_refresh_hours", 6)),
+            "lan_sitter_access_enabled": bool(settings.get("lan_sitter_access_enabled", True)),
             "scheduler_status": status,
             "message": "Settings updated."
         })

@@ -290,6 +290,17 @@ def set_card_speed(slot_id: str):
     speed = float(data.get("speed", 1.0))
     if get_bridge_manager().set_slot_speed(slot_id, speed):
         return jsonify({"success": True, "speed": speed})
+    # Relay to external bridge if slot resides there
+    creds = database.get_api_credentials()
+    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
+        b_url = creds["yoto_bridge_url"].rstrip("/")
+        bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+        try:
+            r = requests.put(f"{b_url}/api/cards/{slot_id}/speed", json={"speed": speed}, headers=bridge_headers, timeout=4)
+            if r.status_code == 200:
+                return jsonify({"success": True, "speed": speed})
+        except Exception as e:
+            logger.debug("External bridge card speed relay notice: %s", e)
     return jsonify({"error": "Slot not found"}), 404
 
 
@@ -300,6 +311,71 @@ def set_card_own_place(slot_id: str):
     own_place = bool(data.get("own_place", False))
     if get_bridge_manager().set_slot_own_place(slot_id, own_place):
         return jsonify({"success": True, "own_place": own_place})
+    # Relay to external bridge if slot resides there
+    creds = database.get_api_credentials()
+    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
+        b_url = creds["yoto_bridge_url"].rstrip("/")
+        bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+        try:
+            r = requests.put(f"{b_url}/api/cards/{slot_id}/own-place", json={"own_place": own_place}, headers=bridge_headers, timeout=4)
+            if r.status_code == 200:
+                return jsonify({"success": True, "own_place": own_place})
+        except Exception as e:
+            logger.debug("External bridge card own-place relay notice: %s", e)
+    return jsonify({"error": "Slot not found"}), 404
+
+
+@bridge_bp.route("/api/cards/<slot_id>/mode", methods=["POST"])
+@require_auth
+def set_card_delivery_mode(slot_id: str):
+    """Switches an existing card slot between 'streaming' and 'offline' delivery modes."""
+    data = request.get_json() or {}
+    target_mode = (data.get("mode") or "streaming").strip().lower()
+    if target_mode not in ("streaming", "offline"):
+        return jsonify({"error": "mode must be 'streaming' or 'offline'"}), 400
+
+    base_url = request.host_url.rstrip("/")
+    mgr = get_bridge_manager()
+    slot = mgr.get_slot(slot_id)
+    if slot:
+        conn = database.get_db_connection()
+        try:
+            with conn:
+                conn.execute("UPDATE bridge_slots SET mode = ?, updated_at = CURRENT_TIMESTAMP WHERE slot_id = ?;", (target_mode, slot_id))
+        finally:
+            conn.close()
+        slot = mgr.get_slot(slot_id) or slot
+        if target_mode == "offline":
+            job = get_offline_manager().queue_transcode(slot_id, base_url=base_url)
+            slot["transcode"] = job
+        elif target_mode == "streaming" and clients.yoto_client and slot.get("abs_item_id"):
+            try:
+                yoto_cid = slot.get("yoto_card_id") or slot_id
+                cover_url = f"{base_url}/api/cover/{slot['abs_item_id']}"
+                clients.yoto_client.save_stream_playlist(
+                    title=slot.get("title", "Audiobook"),
+                    tracks=slot.get("tracks", []),
+                    card_id=yoto_cid,
+                    cover_url=cover_url,
+                    description=f"Streams {slot.get('title', '')} from Audiobookshelf"
+                )
+            except Exception as e:
+                logger.warning("Failed to switch slot %s to streaming playlist: %s", slot_id, e)
+        return jsonify({"success": True, "slot_id": slot_id, "mode": target_mode, "slot": slot})
+
+    # Relay to external bridge if slot resides there
+    creds = database.get_api_credentials()
+    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
+        b_url = creds["yoto_bridge_url"].rstrip("/")
+        bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+        try:
+            ep = "offline" if target_mode == "offline" else "online"
+            r = requests.post(f"{b_url}/api/cards/{slot_id}/{ep}", json={"mode": "book", "speed": 1.0}, headers=bridge_headers, timeout=5)
+            if r.status_code in (200, 202, 204):
+                return jsonify({"success": True, "slot_id": slot_id, "mode": target_mode})
+        except Exception as e:
+            logger.debug("External bridge card mode switch relay notice: %s", e)
+
     return jsonify({"error": "Slot not found"}), 404
 
 
@@ -317,15 +393,18 @@ def toggle_card_pin(slot_id: str):
 @require_auth
 def assign_card_content():
     """
-    Assigns an ABS audiobook to a card slot with configurable delivery mode:
+    Assigns an ABS audiobook or Official Yoto Card to a card slot with configurable delivery mode:
     - profile_id: updates child profile's primary card
     - slot_id: updates specified fleet card slot
-    - mode: 'default', 'streaming', or 'offline'
+    - abs_item_id: Audiobookshelf book ID
+    - yoto_card_id: Official Yoto retail or MYO card ID
+    - mode: 'default', 'streaming', 'offline', or 'retail'
     """
     data = request.get_json() or {}
-    abs_item_id = data.get("abs_item_id")
-    if not abs_item_id:
-        return jsonify({"error": "abs_item_id is required"}), 400
+    abs_item_id = (data.get("abs_item_id") or "").strip()
+    yoto_card_id = (data.get("yoto_card_id") or "").strip()
+    if not abs_item_id and not yoto_card_id:
+        return jsonify({"error": "abs_item_id or yoto_card_id is required"}), 400
 
     profile_id = data.get("profile_id")
     slot_id = data.get("slot_id")
@@ -335,6 +414,8 @@ def assign_card_content():
     mgr = get_bridge_manager()
 
     if profile_id:
+        if not abs_item_id:
+            return jsonify({"error": "abs_item_id is required for profile primary card assignment"}), 400
         try:
             slot = mgr.update_profile_primary_card(
                 profile_id=profile_id,
@@ -348,6 +429,9 @@ def assign_card_content():
         slot = mgr.assign_to_fleet_card(
             slot_id=slot_id,
             abs_item_id=abs_item_id,
+            yoto_card_id=yoto_card_id,
+            title=data.get("title", ""),
+            author=data.get("author", ""),
             mode_override=mode_override,
             base_url=base_url
         )
@@ -557,8 +641,15 @@ def get_device_status_endpoint(device_id: str):
 @require_auth
 def send_player_transport():
     """
-    Sends transport and volume commands from the Parent Web Portal.
-    Payload: { "device_id": str, "action": "play"|"pause"|"resume"|"stop"|"next"|"prev"|"volume", "volume": int }
+    Sends transport, volume, speed, seek, and sleep timer commands from the Parent Web Portal.
+    Payload: {
+      "device_id": str,
+      "action": "play"|"pause"|"resume"|"stop"|"next"|"prev"|"back30"|"fwd30"|"seek"|"speed"|"sleep_timer"|"volume",
+      "volume": int,
+      "minutes": int,
+      "position": float,
+      "speed": float
+    }
     """
     from core.player_service import dispatch_player_control
     data = request.get_json() or {}
@@ -568,8 +659,14 @@ def send_player_transport():
         return jsonify({"ok": False, "error": "device_id and action are required"}), 400
 
     act = "resume" if action == "play" else action
-    vol = data.get("volume")
-    ok, resp_data, status_code = dispatch_player_control(device_id, act, volume=vol)
+    ok, resp_data, status_code = dispatch_player_control(
+        device_id,
+        act,
+        volume=data.get("volume"),
+        minutes=data.get("minutes"),
+        position=data.get("position"),
+        speed=data.get("speed")
+    )
     return jsonify(resp_data), status_code
 
 
@@ -588,6 +685,23 @@ def start_player_card():
     if not device_id or not card_id:
         return jsonify({"error": "device_id and card_id are required"}), 400
 
+    # Try Bridge-First play relay if configured
+    creds = database.get_api_credentials()
+    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
+        b_url = creds["yoto_bridge_url"].rstrip("/")
+        bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
+        try:
+            r = requests.post(
+                f"{b_url}/api/play",
+                json={"device_id": device_id, "card_id": card_id, "chapter": chapter},
+                headers=bridge_headers,
+                timeout=6
+            )
+            if r.status_code in (200, 204):
+                return jsonify({"ok": True, "device_id": device_id, "card_id": card_id, "chapter": chapter})
+        except Exception as e:
+            logger.debug("Bridge /api/play relay notice: %s", e)
+
     if not clients.yoto_client:
         return jsonify({"error": "Yoto client not configured"}), 503
 
@@ -598,11 +712,123 @@ def start_player_card():
 @bridge_bp.route("/api/library/profile/<profile_id>", methods=["GET"])
 @require_auth
 def get_profile_library_catalog(profile_id: str):
-    """Returns curated ABS audiobooks and series permitted for the specified child profile."""
-    from database.curation import get_catalog_items_for_profile
+    """Returns curated ABS audiobooks and series permitted for the specified child profile (or '__all__' for full household library)."""
+    from database.curation import get_catalog_items_for_profile, sanitize_display_text
     try:
+        if profile_id == "__all__":
+            matrix = database.get_catalog_matrix()
+            all_items = []
+            for it in matrix.get("items", []):
+                if it.get("type") != "abs":
+                    continue
+                all_items.append({
+                    "id": it.get("id"),
+                    "type": "abs",
+                    "title": sanitize_display_text(it.get("title") or ""),
+                    "author": sanitize_display_text(it.get("author") or "Unknown"),
+                    "thumb": it.get("cover_url") or f"/api/thumb?type=abs&id={it.get('id', '')}",
+                    "is_highlight": bool(it.get("is_highlight")),
+                    "series": sanitize_display_text(it.get("series") or ""),
+                    "sequence_display": it.get("series_order") or "",
+                    "series_list": it.get("series_list") or [],
+                    "last_played_at": it.get("last_played_at") or ""
+                })
+            return jsonify(all_items)
+
         items = get_catalog_items_for_profile(profile_id, media_type="abs", client_type="kiosk")
         return jsonify(items)
     except Exception as e:
         logger.error("Failed to query catalog for profile %s: %s", profile_id, e)
         return jsonify([])
+
+
+@bridge_bp.route("/api/library/recent/<profile_id>", methods=["GET"])
+@require_auth
+def get_profile_recent_books(profile_id: str):
+    """Returns recently played / in-progress books for the 'Continue Listening' shelf on the Player tab."""
+    try:
+        resp = get_profile_library_catalog(profile_id)
+        items = resp.get_json() if hasattr(resp, "get_json") else []
+        recent = [it for it in (items or []) if it.get("last_played_at")]
+        recent.sort(key=lambda x: str(x.get("last_played_at") or ""), reverse=True)
+        return jsonify(recent[:8])
+    except Exception as e:
+        logger.debug("Recent books lookup notice for %s: %s", profile_id, e)
+        return jsonify([])
+
+
+@bridge_bp.route("/api/library/yoto", methods=["GET"])
+@require_auth
+def get_household_yoto_cards():
+    """Returns household Yoto retail and MYO cards for assigning official Yoto content to Fleet cards."""
+    try:
+        matrix = database.get_catalog_matrix()
+        cards = [
+            {
+                "id": it.get("id"),
+                "title": it.get("title") or "Yoto Card",
+                "author": it.get("author") or "Yoto",
+                "type": it.get("type"),
+                "cover_url": it.get("cover_url") or ""
+            }
+            for it in matrix.get("items", [])
+            if str(it.get("type") or "").startswith("yoto")
+        ]
+        cards.sort(key=lambda c: c["title"].lower())
+        return jsonify(cards)
+    except Exception as e:
+        logger.debug("Household Yoto cards lookup notice: %s", e)
+        return jsonify([])
+
+
+@bridge_bp.route("/api/library/book/<item_id>/details", methods=["GET"])
+@require_auth
+def get_portal_book_details(item_id: str):
+    """Returns book synopsis/description and full chapter breakdown with track durations for the Parent Portal Book Modal."""
+    from routes.admin_curation import get_media_tracks_data
+    description = ""
+    total_duration = 0.0
+    tracks = []
+    title = ""
+    author = ""
+    try:
+        tdata = get_media_tracks_data(item_id)
+        if isinstance(tdata, dict):
+            title = tdata.get("title") or ""
+            author = tdata.get("author") or ""
+            tracks = tdata.get("tracks") or []
+            total_duration = float(tdata.get("total_duration") or 0.0)
+    except Exception as e:
+        logger.debug("Portal tracks lookup notice for %s: %s", item_id, e)
+
+    if clients.abs_client:
+        try:
+            abs_item = clients.abs_client.get_item(item_id)
+            if abs_item:
+                media = abs_item.get("media", {})
+                meta = media.get("metadata", {})
+                description = meta.get("description") or meta.get("subtitle") or ""
+                if not total_duration:
+                    total_duration = float(media.get("duration") or 0.0)
+                if not tracks:
+                    for idx, ch in enumerate(media.get("chapters", []), 1):
+                        st = float(ch.get("start", 0.0))
+                        et = float(ch.get("end", st))
+                        tracks.append({
+                            "number": idx,
+                            "title": ch.get("title") or f"Chapter {idx}",
+                            "start": st,
+                            "end": et,
+                            "duration": max(0.0, et - st)
+                        })
+        except Exception as e:
+            logger.debug("Portal ABS item synopsis lookup notice for %s: %s", item_id, e)
+
+    return jsonify({
+        "id": item_id,
+        "title": title,
+        "author": author,
+        "description": description,
+        "total_duration": total_duration,
+        "tracks": tracks
+    })

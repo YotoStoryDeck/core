@@ -92,6 +92,67 @@
         </div>
       </div>
 
+      <!-- Household User Accounts & Role Management Card (DLP-009) -->
+      <div class="card settings-card" id="cardUserAccounts" style="margin-bottom: 24px;">
+        <div class="card-header-clickable" onclick="toggleCardExpansion('users')" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; cursor: pointer;">
+          <div style="flex: 1; min-width: 260px;">
+            <h3 style="margin-bottom: 4px;">👥 Household User Accounts & Roles</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Manage local parent/admin and sitter/member accounts for web portal and dashboard access.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="expand-chevron" id="usersChevron">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="card-collapsible-body" id="usersBody" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+          <div style="overflow-x: auto; margin-bottom: 16px;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--border-subtle); text-align: left; color: var(--text-secondary);">
+                  <th style="padding: 8px;">Username</th>
+                  <th style="padding: 8px;">Display Name</th>
+                  <th style="padding: 8px;">Role</th>
+                  <th style="padding: 8px; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersTableBody">
+                <tr><td colspan="4" style="padding: 12px; color: var(--text-secondary);">Loading accounts...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+            <strong style="display: block; font-size: 13px; margin-bottom: 10px; color: var(--text-primary);">➕ Add Household User</strong>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end;">
+              <div>
+                <label for="newAdminUsername" style="font-size: 11px; color: var(--text-secondary);">Username</label>
+                <input type="text" id="newAdminUsername" class="form-control" placeholder="e.g. sitter" autocomplete="off">
+              </div>
+              <div>
+                <label for="newAdminDisplayName" style="font-size: 11px; color: var(--text-secondary);">Display Name</label>
+                <input type="text" id="newAdminDisplayName" class="form-control" placeholder="e.g. Grandma / Sitter" autocomplete="off">
+              </div>
+              <div>
+                <label for="newAdminRole" style="font-size: 11px; color: var(--text-secondary);">Role</label>
+                <select id="newAdminRole" class="form-control">
+                  <option value="member">Member (Portal Only)</option>
+                  <option value="admin">Admin (Full Console)</option>
+                </select>
+              </div>
+              <div>
+                <label for="newAdminPassword" style="font-size: 11px; color: var(--text-secondary);">Password</label>
+                <input type="password" id="newAdminPassword" class="form-control" placeholder="Min 6 chars" autocomplete="new-password">
+              </div>
+              <div>
+                <button type="button" class="btn btn-primary btn-sm" style="width: 100%; height: 36px;" onclick="createNewHouseholdUser()">+ Create Account</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Section: Preferences (Catalog & Automatic Library Refresh) -->
       <div class="card settings-card" id="cardPreferences" style="margin-bottom: 24px;">
         <div class="card-header-clickable" onclick="toggleCardExpansion('pref')" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; cursor: pointer;">
@@ -161,6 +222,24 @@
               <div>
                 <label class="switch" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
                   <input type="checkbox" id="toggleExcludeSingleSeries">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trusted Local Network (LAN) / Babysitter Guest Access Toggle (DLP-009) -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <div style="max-width: 580px;">
+                <strong style="display: block; font-size: 14px; color: var(--text-primary); margin-bottom: 4px;">Trusted Local Network (LAN) / Babysitter Guest Access</strong>
+                <p class="text-secondary" style="font-size: 12px; margin: 0; line-height: 1.4;">
+                  When enabled, devices on your private home Wi-Fi / RFC1918 LAN can open the Mobile Parent Portal (<code>/</code>) and Wall Kiosk (<code>/kiosk</code>) without logging in, while the Admin Console (<code>/admin</code>) and remote WAN traffic always require authentication.
+                </p>
+              </div>
+              <div>
+                <label class="switch" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="toggleLanSitterAccess">
                   <span class="slider round"></span>
                 </label>
               </div>

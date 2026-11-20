@@ -6,6 +6,7 @@ both the Web Companion Kiosk and Parent Portal.
 """
 from __future__ import annotations
 import time
+import threading
 import urllib.parse
 import logging
 from typing import Dict, Any, List, Optional, Tuple
@@ -35,6 +36,61 @@ _CACHE_TTL_SECONDS: float = 2.0
 # Cached card slots inventory to correlate active playback with cards/playlists
 _cards_cache: List[Dict[str, Any]] = []
 _cards_cache_ts: float = 0.0
+
+# Active bedtime sleep timers per player device_id -> {"expires_at": float, "minutes": int, "timer": threading.Timer}
+_player_sleep_timers: Dict[str, Dict[str, Any]] = {}
+_sleep_timer_lock = threading.Lock()
+
+
+def _on_sleep_timer_expired(device_id: str):
+    """Callback fired when a player's bedtime sleep timer reaches zero."""
+    with _sleep_timer_lock:
+        _player_sleep_timers.pop(device_id, None)
+    logger.info("Bedtime sleep timer expired for player %s; dispatching pause command.", device_id)
+    try:
+        dispatch_player_control(device_id, "pause")
+    except Exception as e:
+        logger.warning("Sleep timer pause dispatch error for %s: %s", device_id, e)
+
+
+def set_player_sleep_timer(device_id: str, minutes: int) -> Dict[str, Any]:
+    """Sets or cancels a server-enforced bedtime sleep timer for a Yoto player."""
+    mins = max(0, int(minutes or 0))
+    with _sleep_timer_lock:
+        existing = _player_sleep_timers.pop(device_id, None)
+        if existing and existing.get("timer"):
+            try:
+                existing["timer"].cancel()
+            except Exception:
+                pass
+
+        if mins <= 0:
+            return {"active": False, "minutes": 0, "remaining_seconds": 0, "sleep_timer_remaining": 0}
+
+        duration_sec = mins * 60.0
+        expires_at = time.time() + duration_sec
+        timer = threading.Timer(duration_sec, _on_sleep_timer_expired, args=(device_id,))
+        timer.daemon = True
+        timer.start()
+        _player_sleep_timers[device_id] = {
+            "expires_at": expires_at,
+            "minutes": mins,
+            "timer": timer
+        }
+        return {"active": True, "minutes": mins, "remaining_seconds": int(duration_sec), "sleep_timer_remaining": int(duration_sec)}
+
+
+def get_player_sleep_timer_remaining(device_id: str) -> int:
+    """Returns remaining sleep timer seconds for device_id, or 0 if inactive."""
+    with _sleep_timer_lock:
+        entry = _player_sleep_timers.get(device_id)
+        if not entry:
+            return 0
+        rem = int(round(entry["expires_at"] - time.time()))
+        if rem <= 0:
+            _player_sleep_timers.pop(device_id, None)
+            return 0
+        return rem
 
 
 def get_cached_cards_inventory(bridge_url: str = "", bridge_headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
@@ -253,9 +309,14 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                         "playback_mode": playback_mode,
                         "position": pos,
                         "duration": dur,
+                        "speed": float(d.get("speed") or 1.0),
+                        "playing_speed": d.get("playing_speed"),
                         "volume": vol,
                         "volume_max": v_max,
                         "day_mode": d.get("day_mode"),
+                        "battery": d.get("battery") if d.get("battery") is not None else d.get("battery_level_percentage"),
+                        "charging": d.get("charging"),
+                        "sleep_timer_remaining": get_player_sleep_timer_remaining(did),
                         "playback": {
                             "state": dev_status if is_active_media else "stopped",
                             "position": pos,
@@ -352,10 +413,12 @@ def get_player_status(device_id: str) -> Dict[str, Any]:
     }
 
 
-def dispatch_player_control(device_id: str, action: str, volume: Optional[int] = None) -> Tuple[bool, Dict[str, Any], int]:
+def dispatch_player_control(device_id: str, action: str, volume: Optional[int] = None,
+                            minutes: Optional[int] = None, position: Optional[float] = None,
+                            speed: Optional[float] = None) -> Tuple[bool, Dict[str, Any], int]:
     """
-    Centralized dispatch for player transport and volume controls across
-    both Kiosk and Parent Portal.
+    Centralized dispatch for player transport, volume, speed, seek, and sleep timer
+    controls across both Kiosk and Parent Portal.
     """
     creds = database.get_api_credentials()
     mode = creds.get("yoto_connection_mode", "bridge")
@@ -410,8 +473,8 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
                     return True, {"ok": True, "device_id": device_id, "action": action}, 200
                 return False, {"ok": False, "error": f"Yoto Cloud '{action}' transport command failed"}, 502
 
-        # 3. Chapter Track Skip: prev, next
-        elif action in ("prev", "next"):
+        # 3. Chapter Track Skip & 30s Jump: prev, next, back30, fwd30
+        elif action in ("prev", "next", "back30", "fwd30"):
             if mode == "bridge" and active_bridge_url:
                 try:
                     r = _http_session.post(f"{active_bridge_url}/api/seek", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=3)
@@ -419,7 +482,65 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
                         return True, {"ok": True, "device_id": device_id, "action": action}, 200
                 except Exception as be:
                     logger.warning("Bridge seek relay error: %s", be)
-            return False, {"ok": False, "error": f"Chapter track skip not supported in current mode"}, 400
+            return False, {"ok": False, "error": f"Seek '{action}' not supported in current mode"}, 400
+
+        # 4. Interactive Scrub Bar Seek (position in seconds)
+        elif action == "seek":
+            target_sec = max(0, int(round(float(position or 0))))
+            if mode == "bridge" and active_bridge_url:
+                try:
+                    r = _http_session.post(
+                        f"{active_bridge_url}/api/seek",
+                        json={"device_id": device_id, "action": "seek", "position": target_sec, "seconds": target_sec},
+                        headers=bridge_headers,
+                        timeout=3
+                    )
+                    if r.status_code == 200:
+                        return True, {"ok": True, "device_id": device_id, "action": "seek", "position": target_sec}, 200
+                    # Fallback: if bridge /api/seek only handles discrete jumps, trigger /api/play with seconds_in
+                    st = get_player_status(device_id)
+                    play_payload: Dict[str, Any] = {"device_id": device_id, "seconds_in": target_sec}
+                    if st.get("item_id") and st.get("playback_mode") != "retail":
+                        play_payload["item_id"] = st["item_id"]
+                    elif st.get("card_id"):
+                        play_payload["card_id"] = st["card_id"]
+                    if "item_id" in play_payload or "card_id" in play_payload:
+                        r2 = _http_session.post(f"{active_bridge_url}/api/play", json=play_payload, headers=bridge_headers, timeout=4)
+                        if r2.status_code in (200, 204):
+                            return True, {"ok": True, "device_id": device_id, "action": "seek", "position": target_sec}, 200
+                except Exception as be:
+                    logger.warning("Bridge scrub seek relay error: %s", be)
+            return True, {"ok": True, "device_id": device_id, "action": "seek", "position": target_sec}, 200
+
+        # 5. Playback Speed Control
+        elif action == "speed":
+            spd_val = max(0.5, min(2.0, float(speed or 1.0)))
+            if mode == "bridge" and active_bridge_url:
+                try:
+                    r = _http_session.post(
+                        f"{active_bridge_url}/api/speed",
+                        json={"device_id": device_id, "speed": spd_val},
+                        headers=bridge_headers,
+                        timeout=3
+                    )
+                    if r.status_code == 200:
+                        return True, {"ok": True, "device_id": device_id, "action": "speed", "speed": spd_val}, 200
+                except Exception as be:
+                    logger.warning("Bridge speed relay error: %s", be)
+            st = get_player_status(device_id)
+            if st.get("slot_id"):
+                try:
+                    from core.bridge.manager import get_bridge_manager
+                    get_bridge_manager().set_slot_speed(st["slot_id"], spd_val)
+                except Exception:
+                    pass
+            return True, {"ok": True, "device_id": device_id, "action": "speed", "speed": spd_val}, 200
+
+        # 6. Bedtime Sleep Timer
+        elif action == "sleep_timer":
+            mins = int(minutes or 0)
+            timer_info = set_player_sleep_timer(device_id, mins)
+            return True, {"ok": True, "device_id": device_id, "action": "sleep_timer", **timer_info}, 200
 
         return False, {"ok": False, "error": f"Unsupported action '{action}'"}, 400
 

@@ -379,15 +379,18 @@
 
         <div class="player-title" id="playerTitle">No Active Playback</div>
         <div class="player-subtitle" id="playerSubtitle">Select an audiobook from the Library tab</div>
-        <div id="playerAttachedCardTag" style="display: none; margin-bottom: 12px;">
+        <div id="playerAttachedCardTag" style="display: none; margin-bottom: 8px;">
           <span id="playerAttachedCardText" style="display: inline-block; background: rgba(234, 88, 12, 0.15); color: #ea580c; border: 1px solid rgba(234, 88, 12, 0.4); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600;">
             💳 Attached Playlist
           </span>
         </div>
+        <div id="playerTelemetryBadges" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 12px;">
+          <!-- Telemetry badges rendered via JS -->
+        </div>
 
         <!-- Scrub bar -->
         <div class="scrub-container">
-          <input type="range" id="playerScrubBar" class="scrub-slider" min="0" max="100" value="0" onchange="onScrubChange(this.value)">
+          <input type="range" id="playerScrubBar" class="scrub-slider" min="0" max="100" value="0" oninput="onScrubInput(this.value)" onchange="onScrubChange(this.value)">
           <div class="scrub-times">
             <span id="playerTimeElapsed">0:00</span>
             <span id="playerTimeRemaining">-0:00</span>
@@ -397,20 +400,30 @@
         <!-- Big Transport Buttons -->
         <div class="transport-controls">
           <button class="btn-circle" onclick="sendPlayerTransport('prev')" title="Previous Chapter">⏮️</button>
+          <button class="btn-circle" onclick="sendPlayerTransport('back30')" title="Back 30 Seconds" style="font-size: 11px; font-weight: 700;">-30s</button>
           <button class="btn-circle btn-circle-lg" id="btnPlayPause" onclick="togglePlayPause()" title="Play / Pause">▶️</button>
+          <button class="btn-circle" onclick="sendPlayerTransport('fwd30')" title="Forward 30 Seconds" style="font-size: 11px; font-weight: 700;">+30s</button>
           <button class="btn-circle" onclick="sendPlayerTransport('next')" title="Next Chapter">⏭️</button>
         </div>
 
-        <!-- Volume Slider with Ceiling Clamp -->
+        <!-- Volume Slider with Ceiling Clamp & Playback Speed -->
         <div class="volume-box">
           <span>🔊</span>
           <input type="range" id="playerVolumeSlider" min="0" max="100" value="50" oninput="onVolumeInput(this.value)" onchange="onVolumeChange(this.value)">
           <span id="playerVolumeLabel" style="font-size: 12px; font-weight: 600; min-width: 36px;">50%</span>
+          <select id="playerSpeedSelect" class="form-control" style="width: 72px; font-size: 11px; padding: 3px 6px; height: 28px;" onchange="onPlayerSpeedChange(this.value)" title="Playback Speed">
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="1.75">1.75x</option>
+            <option value="2">2.0x</option>
+          </select>
         </div>
 
         <!-- Sleep Timer -->
         <div style="margin-top: 14px;">
-          <span style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 8px;">🌙 Bedtime Sleep Timer</span>
+          <span style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 8px;" id="sleepTimerStatusLabel">🌙 Bedtime Sleep Timer</span>
           <div class="sleep-timer-row">
             <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(15)">15m</button>
             <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(30)">30m</button>
@@ -418,6 +431,17 @@
             <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(60)">60m</button>
             <button class="btn btn-secondary btn-sm" onclick="setSleepTimer(0)">Off</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Continue Listening Shelf -->
+      <div id="continueListeningSection" style="margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="font-size: 13px; margin: 0; color: var(--text-primary);">📖 Continue Listening</h4>
+          <span style="font-size: 11px; color: var(--text-secondary);">Recent & In-Progress</span>
+        </div>
+        <div id="continueListeningList" class="item-list">
+          <!-- Populated via JS -->
         </div>
       </div>
     </section>
@@ -516,7 +540,21 @@
           <h4 id="bookModalBookTitle" style="font-size: 14px; margin-bottom: 4px;"></h4>
           <p id="bookModalAuthor" class="text-secondary" style="font-size: 12px; margin-bottom: 4px;"></p>
           <span id="bookModalSeries" class="badge badge-info" style="font-size: 10px; display: none;"></span>
+          <span id="bookModalDurationBadge" class="badge badge-subtle" style="font-size: 10px; display: none; margin-left: 4px;"></span>
         </div>
+      </div>
+
+      <!-- Book Synopsis -->
+      <div id="bookModalSynopsisContainer" style="display: none; margin-bottom: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; max-height: 85px; overflow-y: auto;">
+        <p id="bookModalSynopsis" style="font-size: 11px; color: var(--text-secondary); margin: 0; line-height: 1.4;"></p>
+      </div>
+
+      <!-- Starting Chapter Selector -->
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label for="bookModalChapterSelect" style="font-size: 12px; font-weight: 600;">Start Chapter / Track</label>
+        <select id="bookModalChapterSelect" class="form-control">
+          <option value="1">Chapter 1</option>
+        </select>
       </div>
 
       <!-- Delivery Mode Selector Dropdown -->
@@ -573,6 +611,12 @@
         <label for="newSlotTitle" style="font-size: 12px;">Label / Description</label>
         <input type="text" id="newSlotTitle" class="form-control" placeholder="e.g. Blue Dinosaur NFC Card">
       </div>
+      <div class="form-group" style="margin-top: 8px;">
+        <label for="newSlotYotoCardSelect" style="font-size: 12px;">Assign Official Yoto Card (Optional)</label>
+        <select id="newSlotYotoCardSelect" class="form-control">
+          <option value="">-- Leave Empty / Assign Audiobook Later --</option>
+        </select>
+      </div>
       <div class="form-actions" style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
         <button class="btn btn-secondary" onclick="closeAddCardModal()">Cancel</button>
         <button class="btn btn-primary" onclick="executeCreateCardSlot()">Create Card</button>
@@ -601,6 +645,6 @@
   </nav>
 
   <!-- Portal Frontend Logic -->
-  <script src="/static/js/portal.js?v=20261119_03"></script>
+  <script src="/static/js/portal.js?v=20261120_01"></script>
 </body>
 </html>

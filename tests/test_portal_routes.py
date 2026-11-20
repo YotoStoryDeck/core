@@ -72,14 +72,14 @@ class TestPortalRoutes(unittest.TestCase):
                                 json={"device_id": "yoto_123", "action": "pause"},
                                 environ_base={"REMOTE_ADDR": "192.168.1.100"})
             self.assertEqual(res.status_code, 200)
-            mock_ctl.assert_called_with("yoto_123", "pause", volume=None)
+            mock_ctl.assert_called_with("yoto_123", "pause", volume=None, minutes=None, position=None, speed=None)
 
             # Volume command
             res = self.app.post("/api/player/transport",
                                 json={"device_id": "yoto_123", "action": "volume", "volume": 65},
                                 environ_base={"REMOTE_ADDR": "192.168.1.100"})
             self.assertEqual(res.status_code, 200)
-            mock_ctl.assert_called_with("yoto_123", "volume", volume=65)
+            mock_ctl.assert_called_with("yoto_123", "volume", volume=65, minutes=None, position=None, speed=None)
 
     def test_library_profile_endpoint(self):
         """Verifies GET /api/library/profile/<id> returns catalog array."""
