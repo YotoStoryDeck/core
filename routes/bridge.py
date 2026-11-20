@@ -500,12 +500,11 @@ def trigger_lru_prune():
 @bridge_bp.route("/api/player/devices", methods=["GET"])
 @require_auth
 def get_player_devices():
-    """Returns available Yoto player hardware devices."""
-    if not clients.yoto_client:
-        return jsonify([])
+    """Returns available Yoto player hardware devices with live status."""
+    from core.player_service import get_live_players_map
     try:
-        devices = clients.yoto_client.get_devices()
-        return jsonify(devices)
+        players = get_live_players_map()
+        return jsonify(list(players.values()))
     except Exception as e:
         logger.error("Failed to query player devices: %s", e)
         return jsonify([])
@@ -514,11 +513,10 @@ def get_player_devices():
 @bridge_bp.route("/api/player/status/<device_id>", methods=["GET"])
 @require_auth
 def get_device_status_endpoint(device_id: str):
-    """Returns device playback status (volume, online, playing)."""
-    if not clients.yoto_client:
-        return jsonify({})
+    """Returns device playback status (volume, online, playing, now_playing, chapter, position)."""
+    from core.player_service import get_player_status
     try:
-        status = clients.yoto_client.get_card_detail(device_id) or {}
+        status = get_player_status(device_id)
         return jsonify(status)
     except Exception as e:
         logger.debug("Device status query notice for %s: %s", device_id, e)
@@ -532,24 +530,17 @@ def send_player_transport():
     Sends transport and volume commands from the Parent Web Portal.
     Payload: { "device_id": str, "action": "play"|"pause"|"resume"|"stop"|"next"|"prev"|"volume", "volume": int }
     """
+    from core.player_service import dispatch_player_control
     data = request.get_json() or {}
     device_id = data.get("device_id")
     action = data.get("action")
     if not device_id or not action:
-        return jsonify({"error": "device_id and action are required"}), 400
+        return jsonify({"ok": False, "error": "device_id and action are required"}), 400
 
-    if not clients.yoto_client:
-        return jsonify({"error": "Yoto client not configured"}), 503
-
-    if action == "volume":
-        vol = max(0, min(100, int(data.get("volume", 50))))
-        ok = clients.yoto_client.set_volume(device_id, vol)
-        return jsonify({"ok": ok, "volume": vol})
-    else:
-        # map 'play' action to 'resume'
-        act = "resume" if action == "play" else action
-        ok = clients.yoto_client.send_transport_command(device_id, act)
-        return jsonify({"ok": ok, "action": action})
+    act = "resume" if action == "play" else action
+    vol = data.get("volume")
+    ok, resp_data, status_code = dispatch_player_control(device_id, act, volume=vol)
+    return jsonify(resp_data), status_code
 
 
 @bridge_bp.route("/api/player/play", methods=["POST"])

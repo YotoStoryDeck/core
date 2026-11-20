@@ -156,29 +156,53 @@ async function pollPlayerStatus() {
     if (!res.ok) return;
     const data = await res.json();
 
-    if (data && data.title) {
-      document.getElementById("playerTitle").innerText = data.title;
-      document.getElementById("playerSubtitle").innerText = data.author || (data.chapterTitle ? `Chapter: ${data.chapterTitle}` : "Playing on Yoto");
-      if (data.coverUrl || data.coverImageUrl) {
-        document.getElementById("playerCoverImg").src = data.coverUrl || data.coverImageUrl;
+    const titleEl = document.getElementById("playerTitle");
+    const subEl = document.getElementById("playerSubtitle");
+    const coverEl = document.getElementById("playerCoverImg");
+
+    const hasActiveMedia = data && (data.is_playing || data.has_card || (data.status === "playing" || data.status === "paused"));
+
+    if (hasActiveMedia) {
+      if (titleEl) titleEl.innerText = data.now_playing || data.title || "Audiobook";
+      const ch = data.chapter_title || data.chapterTitle;
+      if (subEl) {
+        subEl.innerText = data.author ? `${data.author}${ch ? ` · ${ch}` : ""}` : (ch ? `Chapter: ${ch}` : "Playing on Yoto");
+      }
+      const cover = data.cover_url || data.coverUrl || data.coverImageUrl;
+      if (coverEl && cover) {
+        coverEl.src = cover;
+      }
+    } else if (data) {
+      if (titleEl) titleEl.innerText = "No Active Playback";
+      if (subEl) {
+        subEl.innerText = data.name ? `${data.name} · ${data.online ? "Online" : "Offline"}` : "Select an audiobook from Library";
+      }
+      if (coverEl) {
+        coverEl.src = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png";
       }
     }
 
-    if (data.playback) {
-      isPlaying = data.playback.state === "playing";
-      document.getElementById("btnPlayPause").innerText = isPlaying ? "⏸️" : "▶️";
+    if (data && data.playback) {
+      isPlaying = data.playback.state === "playing" || Boolean(data.is_playing);
+      const playBtn = document.getElementById("btnPlayPause");
+      if (playBtn) playBtn.innerText = isPlaying ? "⏸️" : "▶️";
 
-      currentPosition = data.playback.position || 0;
-      currentDuration = data.playback.duration || 1;
-      const pct = Math.min(100, (currentPosition / currentDuration) * 100);
-      document.getElementById("playerScrubBar").value = pct;
-      document.getElementById("playerTimeElapsed").innerText = formatSeconds(currentPosition);
-      document.getElementById("playerTimeRemaining").innerText = `-${formatSeconds(Math.max(0, currentDuration - currentPosition))}`;
+      currentPosition = data.playback.position || data.position || 0;
+      currentDuration = data.playback.duration || data.duration || 1;
+      const pct = currentDuration > 0 ? Math.min(100, (currentPosition / currentDuration) * 100) : 0;
+      const scrubBar = document.getElementById("playerScrubBar");
+      if (scrubBar) scrubBar.value = pct;
+      const elElapsed = document.getElementById("playerTimeElapsed");
+      if (elElapsed) elElapsed.innerText = formatSeconds(currentPosition);
+      const elRem = document.getElementById("playerTimeRemaining");
+      if (elRem) elRem.innerText = `-${formatSeconds(Math.max(0, currentDuration - currentPosition))}`;
     }
 
-    if (data.volume !== undefined) {
-      document.getElementById("playerVolumeSlider").value = data.volume;
-      document.getElementById("playerVolumeLabel").innerText = `${data.volume}%`;
+    if (data && data.volume !== undefined) {
+      const volSlider = document.getElementById("playerVolumeSlider");
+      if (volSlider) volSlider.value = data.volume;
+      const volLabel = document.getElementById("playerVolumeLabel");
+      if (volLabel) volLabel.innerText = `${data.volume}%`;
     }
   } catch (err) {
     // Poll notice
