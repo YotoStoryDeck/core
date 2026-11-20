@@ -5,9 +5,15 @@ Configuration constants and environment settings for StoryDeck Core.
 import os
 import ipaddress
 import logging
+import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+import urllib3
 import database
+
+# Suppress spurious InsecureRequestWarning when system truststore/pip-system-certs is active on Windows
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 # Load local environment variables
 load_dotenv()
@@ -18,12 +24,12 @@ log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 class WerkzeugPollingFilter(logging.Filter):
     """
     Suppresses repetitive high-frequency polling requests from noisy INFO logs
-    (e.g., /api/device/config, /health, /static/) down to DEBUG level.
+    (e.g., /api/device/config, /health, /api/devices/status, /api/player/status) down to DEBUG level.
     """
     def filter(self, record):
         msg = record.getMessage()
         # Filter high frequency polling endpoints
-        if any(p in msg for p in ("/api/device/config", "/health", "/api/devices/status")):
+        if any(p in msg for p in ("/api/device/config", "/health", "/api/devices/status", "/api/player/status", "/api/player/devices")):
             return record.levelno >= logging.WARNING
         return True
 
