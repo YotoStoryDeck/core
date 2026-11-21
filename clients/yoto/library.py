@@ -3,6 +3,7 @@ Yoto Play Cloud device discovery, family library fetching, groups, and curation 
 """
 import json
 import re
+import time
 from pathlib import Path
 from typing import Dict, Any, List
 import requests
@@ -127,6 +128,47 @@ class YotoLibraryMixin:
                 logger.error("Yoto get_devices error: %s", e)
                 break
         return []
+
+    def get_device_config(self, device_id: str) -> Dict[str, Any]:
+        """Retrieves cached player configuration (including maxVolumeLimit/nightMaxVolumeLimit) from Yoto Cloud."""
+        if not device_id:
+            return {}
+
+        now = time.time()
+        cache = getattr(self, "_device_config_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._device_config_cache = cache
+
+        entry = cache.get(device_id)
+        if entry and (now - entry.get("ts", 0.0)) < 300.0:
+            return entry.get("config") or {}
+
+        token = self.get_token()
+        if not token:
+            return entry.get("config", {}) if entry else {}
+
+        url = f"{self.API_URL}/device-v2/{device_id}/config"
+        for attempt in range(2):
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    data = res.json() or {}
+                    dev = data.get("device") if isinstance(data.get("device"), dict) else data
+                    cfg = dev.get("config") if isinstance(dev.get("config"), dict) else {}
+                    cache[device_id] = {"config": cfg, "ts": now}
+                    return cfg
+                if res.status_code in (401, 403) and attempt == 0:
+                    token = self.get_token(force_refresh=True)
+                    if token:
+                        continue
+                break
+            except Exception as e:
+                logger.debug("Yoto get_device_config notice for %s: %s", device_id, e)
+                break
+
+        return entry.get("config", {}) if entry else {}
 
     def get_raw_library(self) -> List[Dict[str, Any]]:
         """Fetches raw cards from Yoto family library (direct Yoto Cloud with local cache fallback)."""

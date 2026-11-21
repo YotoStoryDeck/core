@@ -167,7 +167,7 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
 
     player_map: Dict[str, Dict[str, Any]] = {}
     try:
-        from core.bridge.mqtt_client import get_mqtt_bridge
+        from core.bridge.mqtt_client import get_mqtt_bridge, _hw_volume_to_pct
         from core.bridge.playback import get_playback_manager
         mqtt_states = get_mqtt_bridge().get_device_states()
         pb_mgr = get_playback_manager()
@@ -196,7 +196,17 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
             is_online = bool(mqtt_ev["online"]) if "online" in mqtt_ev else bool(d.get("online"))
             is_home = verify_player_home_presence(did, is_online)
 
-            v_max = mqtt_ev.get("volume_max") if mqtt_ev.get("volume_max") is not None else (d.get("volume_max", 100) or 100)
+            v_max = mqtt_ev.get("volume_max")
+            if v_max is None and d.get("volume_max") is not None:
+                v_max = _hw_volume_to_pct(d.get("volume_max"))
+            if v_max is None and clients.yoto_client and hasattr(clients.yoto_client, "get_device_config"):
+                dev_cfg = clients.yoto_client.get_device_config(did) or {}
+                if dev_cfg:
+                    raw_cap = dev_cfg.get("nightMaxVolumeLimit") if mqtt_ev.get("day_mode") == 0 else dev_cfg.get("maxVolumeLimit")
+                    if raw_cap is None:
+                        raw_cap = dev_cfg.get("maxVolumeLimit") or dev_cfg.get("nightMaxVolumeLimit")
+                    v_max = _hw_volume_to_pct(raw_cap)
+            v_max = int(v_max) if v_max is not None else 100
 
             if mqtt_ev.get("playbackStatus"):
                 dev_status = str(mqtt_ev["playbackStatus"]).lower()
@@ -280,8 +290,12 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                 cover_url = DEFAULT_ABS_COVER
 
             vol = mqtt_ev.get("volume")
+            if vol is None and d.get("volume") is not None:
+                vol = _hw_volume_to_pct(d.get("volume"))
             if vol is None:
-                vol = d.get("volume", 50) if d.get("volume") is not None else 50
+                vol = min(50, v_max)
+            else:
+                vol = max(0, min(v_max, int(vol)))
 
             player_map[did] = {
                 "id": did,

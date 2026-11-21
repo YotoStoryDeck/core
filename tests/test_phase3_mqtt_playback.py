@@ -362,6 +362,67 @@ class TestPhase3MqttPlayback(unittest.TestCase):
             finally:
                 loop.close()
 
+    def test_hardware_volume_0_16_conversion_and_cap_propagation(self):
+        """Raw 0-16 MQTT volume & volume_max convert to 0-100% and update YotoMqttClient cap."""
+        bridge = YotoMqttBridge()
+        mock_client = MagicMock()
+        mock_client.is_connected = True
+        bridge._client = mock_client
+        bridge._loop = MagicMock(is_running=MagicMock(return_value=True))
+
+        # 8/16 -> 50% (Wesley's night cap case)
+        bridge.handle_message(EventPatch("dev_w", volume=8, volume_max=8))
+        st_w = bridge.get_device_state("dev_w")
+        self.assertEqual(st_w["volume"], 50)
+        self.assertEqual(st_w["volume_max"], 50)
+        self.assertEqual(st_w["volume_max_raw"], 8)
+        mock_client.set_volume_max.assert_called_with("dev_w", 8)
+
+        # 6/16 -> 38%, 12/16 -> 75%
+        bridge.handle_message(EventPatch("dev_d", volume=6, volume_max=12))
+        st_d = bridge.get_device_state("dev_d")
+        self.assertEqual(st_d["volume"], 38)
+        self.assertEqual(st_d["volume_max"], 75)
+
+        # 16/16 -> 100%, 2/16 -> 13%
+        bridge.handle_message(EventPatch("dev_full", volume=2, volume_max=16))
+        st_f = bridge.get_device_state("dev_full")
+        self.assertEqual(st_f["volume"], 13)
+        self.assertEqual(st_f["volume_max"], 100)
+
+        # set_volume delegates to client.set_volume(device_id, vol)
+        coro_sentinel = object()
+        mock_client.set_volume.return_value = coro_sentinel
+        with patch.object(bridge, "_dispatch_coro", return_value=True) as mock_disp:
+            ok = bridge.set_volume("dev_w", 45)
+        self.assertTrue(ok)
+        mock_client.set_volume.assert_called_once_with("dev_w", 45)
+        mock_disp.assert_called_once_with(coro_sentinel)
+
+    def test_player_service_config_fallback_for_volume_cap(self):
+        """player_service falls back to /device-v2/{id}/config day/night cap when MQTT volume_max is missing."""
+        test_mqtt = YotoMqttBridge()
+        test_mqtt.handle_message(StatusPatch("dev_cfg_night", day_mode=0, battery_level_percentage=95))
+
+        with patch("core.bridge.mqtt_client.get_mqtt_bridge", return_value=test_mqtt), \
+             patch.object(clients.yoto_client, "get_devices", return_value=[{"deviceId": "dev_cfg_night", "name": "Wesley", "online": True}]), \
+             patch.object(clients.yoto_client, "get_device_config", return_value={"maxVolumeLimit": "12", "nightMaxVolumeLimit": "8"}):
+            players = player_service.get_live_players_map(force_refresh=True)
+
+        p = players["dev_cfg_night"]
+        self.assertEqual(p["volume_max"], 50)
+        self.assertEqual(p["volume"], 50)  # Default 50 fits within cap=50
+
+        # Day mode -> uses maxVolumeLimit=12 -> 75%
+        test_mqtt_day = YotoMqttBridge()
+        test_mqtt_day.handle_message(StatusPatch("dev_cfg_day", day_mode=1, battery_level_percentage=90))
+        with patch("core.bridge.mqtt_client.get_mqtt_bridge", return_value=test_mqtt_day), \
+             patch.object(clients.yoto_client, "get_devices", return_value=[{"deviceId": "dev_cfg_day", "name": "Jackson", "online": True}]), \
+             patch.object(clients.yoto_client, "get_device_config", return_value={"maxVolumeLimit": "12", "nightMaxVolumeLimit": "8"}):
+            players_day = player_service.get_live_players_map(force_refresh=True)
+
+        self.assertEqual(players_day["dev_cfg_day"]["volume_max"], 75)
+
 
 if __name__ == "__main__":
     unittest.main()

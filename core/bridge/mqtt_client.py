@@ -17,6 +17,25 @@ import clients
 
 logger = logging.getLogger("storydeck.bridge.mqtt")
 
+_HARDWARE_VOLUME_MAX = 16
+# Matches yoto_api.const.VOLUME_MAPPING_INVERTED (steps 0..16 -> 0..100%)
+_VOLUME_STEP_TO_PCT = (0, 7, 13, 19, 25, 32, 38, 44, 50, 57, 63, 69, 75, 82, 88, 94, 100)
+
+
+def _hw_volume_to_pct(raw: Any) -> Optional[int]:
+    """Converts Yoto raw 0-16 hardware volume/limit step into 0-100%, clamping >16 as percentage."""
+    if raw is None or raw == "":
+        return None
+    try:
+        val = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if val < 0:
+        return 0
+    if val <= _HARDWARE_VOLUME_MAX:
+        return _VOLUME_STEP_TO_PCT[val]
+    return min(100, val)
+
 
 def _create_event_loop() -> asyncio.AbstractEventLoop:
     """Creates an asyncio event loop supporting add_reader/add_writer (SelectorEventLoop on Windows)."""
@@ -133,6 +152,17 @@ class YotoMqttBridge:
             isinstance(fields, dict) and ("card_id" in fields or "playback_status" in fields)
         )
         if is_event_patch:
+            raw_vol = _val(fields.get("volume"))
+            raw_vmax = _val(fields.get("volume_max"))
+            raw_vmax_int = None
+            if raw_vmax is not None and raw_vmax != "":
+                try:
+                    rv = int(float(raw_vmax))
+                    if 0 <= rv <= _HARDWARE_VOLUME_MAX:
+                        raw_vmax_int = rv
+                except (TypeError, ValueError):
+                    pass
+
             raw_ev = {
                 "cardId": _val(fields.get("card_id")),
                 "position": _val(fields.get("position")),
@@ -144,10 +174,17 @@ class YotoMqttBridge:
                 "chapterKey": _val(fields.get("chapter_key")),
                 "chapterTitle": _val(fields.get("chapter_title")),
                 "trackTitle": _val(fields.get("track_title")),
-                "volume": _val(fields.get("volume")),
-                "volume_max": _val(fields.get("volume_max")),
+                "volume": _hw_volume_to_pct(raw_vol),
+                "volume_max": _hw_volume_to_pct(raw_vmax),
+                "volume_max_raw": raw_vmax_int,
             }
             ev = {k: v for k, v in raw_ev.items() if v is not None}
+
+            if raw_vmax_int is not None and self._client and hasattr(self._client, "set_volume_max"):
+                try:
+                    self._client.set_volume_max(player_id, raw_vmax_int)
+                except Exception as e:
+                    logger.debug("Unable to propagate set_volume_max for %s: %s", player_id, e)
 
             with self._lock:
                 merged = self._devices.setdefault(player_id, {})
@@ -337,12 +374,14 @@ class YotoMqttBridge:
         return self._dispatch_coro(self._client.card_stop(device_id))
 
     def set_volume(self, device_id: str, volume: int) -> bool:
-        """Sets player volume (0-100) over MQTT."""
+        """Sets player volume (0-100) over MQTT via yoto_api volume mapping or command/volume/set."""
         if not self.is_connected or not self._client:
             return False
         vol = max(0, min(100, int(volume)))
+        if hasattr(self._client, "set_volume"):
+            return self._dispatch_coro(self._client.set_volume(device_id, vol))
         return self._dispatch_coro(
-            self._client._publish(f"device/{device_id}/command/volume", json.dumps({"volume": vol}))
+            self._client._publish(f"device/{device_id}/command/volume/set", json.dumps({"volume": vol}))
         )
 
 

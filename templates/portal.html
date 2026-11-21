@@ -6,7 +6,7 @@
   <title>StoryDeck • Parent Portal</title>
   <link rel="icon" href="/favicon.ico">
   <link rel="stylesheet" href="/static/css/admin.css?v=20261120_03">
-  <link rel="stylesheet" href="/static/css/portal.css?v=20261120_03">
+  <link rel="stylesheet" href="/static/css/portal.css?v=20261120_04">
 </head>
 <body class="dark-theme">
 
@@ -96,8 +96,11 @@
         <!-- Volume Slider with Ceiling Clamp & Playback Speed -->
         <div class="volume-box">
           <span>🔊</span>
-          <input type="range" id="playerVolumeSlider" min="0" max="100" value="50" oninput="onVolumeInput(this.value)" onchange="onVolumeChange(this.value)">
-          <span id="playerVolumeLabel" style="font-size: 12px; font-weight: 600; min-width: 36px;">50%</span>
+          <div class="volume-slider-wrap">
+            <input type="range" id="playerVolumeSlider" min="0" max="100" value="50" oninput="onVolumeInput(this.value)" onchange="onVolumeChange(this.value)">
+            <div id="playerVolumeCapMarker" class="volume-cap-marker" style="display: none;"></div>
+          </div>
+          <span id="playerVolumeLabel" style="font-size: 12px; font-weight: 600; min-width: 36px; white-space: nowrap;">50%</span>
           <select id="playerSpeedSelect" class="form-control" style="width: 72px; font-size: 11px; padding: 3px 6px; height: 28px;" onchange="onPlayerSpeedChange(this.value)" title="Playback Speed">
             <option value="0.75">0.75x</option>
             <option value="1" selected>1.0x</option>
@@ -333,7 +336,7 @@
 
   <!-- Portal Frontend Logic -->
   <script src="/static/js/portal/core.js?v=20261120_03"></script>
-  <script src="/static/js/portal/player.js?v=20261120_03"></script>
+  <script src="/static/js/portal/player.js?v=20261120_04"></script>
   <script src="/static/js/portal/library.js?v=20261120_03"></script>
   <script src="/static/js/portal/cards.js?v=20261120_03"></script>
   <script src="/static/js/portal/playlists.js?v=20261120_03"></script>

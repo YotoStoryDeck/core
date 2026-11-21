@@ -182,19 +182,13 @@ async function pollPlayerStatus() {
       }
     }
 
-    // Volume with Ceiling Clamp Enforcement
-    currentVolumeMax = (data && data.volume_max != null) ? parseInt(data.volume_max, 10) : 100;
-    if (data && data.volume !== undefined) {
+    // Volume with Full 0-100% Scale & Yoto App Ceiling Clamp
+    const maxVol = (data && data.volume_max != null) ? parseInt(data.volume_max, 10) : 100;
+    if (!isAdjustingVolume && data && data.volume !== undefined) {
+      updateVolumeSliderUI(data.volume, maxVol);
+    } else if (!isAdjustingVolume && data && data.volume_max != null) {
       const volSlider = document.getElementById("playerVolumeSlider");
-      if (volSlider) {
-        volSlider.max = currentVolumeMax;
-        volSlider.value = Math.min(currentVolumeMax, data.volume);
-      }
-      const volLabel = document.getElementById("playerVolumeLabel");
-      if (volLabel) {
-        const val = volSlider ? volSlider.value : data.volume;
-        volLabel.innerText = currentVolumeMax < 100 ? `${val}% (Limit: ${currentVolumeMax}%)` : `${val}%`;
-      }
+      updateVolumeSliderUI(volSlider ? volSlider.value : 50, maxVol);
     }
   } catch (err) {
     // Poll notice
@@ -219,27 +213,55 @@ function togglePlayPause() {
   sendPlayerTransport(isPlaying ? "pause" : "resume");
 }
 
-function onVolumeInput(val) {
+let isAdjustingVolume = false;
+
+function updateVolumeSliderUI(val, maxCap) {
+  const rawCap = (maxCap !== undefined && maxCap !== null) ? maxCap : currentVolumeMax;
+  const parsedCap = parseInt(rawCap !== undefined && rawCap !== null ? rawCap : 100, 10);
+  const cap = Number.isNaN(parsedCap) ? 100 : Math.max(0, Math.min(100, parsedCap));
+  currentVolumeMax = cap;
+
   let v = parseInt(val, 10);
-  if (v > currentVolumeMax) {
-    v = currentVolumeMax;
-    const slider = document.getElementById("playerVolumeSlider");
-    if (slider) slider.value = v;
+  if (Number.isNaN(v)) v = 0;
+  v = Math.max(0, Math.min(cap, v));
+
+  const volSlider = document.getElementById("playerVolumeSlider");
+  if (volSlider) {
+    volSlider.min = 0;
+    volSlider.max = 100;
+    volSlider.value = v;
+    volSlider.style.setProperty("--vol-pct", `${v}%`);
+    volSlider.style.setProperty("--vol-max", `${cap}%`);
+    volSlider.style.background = `linear-gradient(to right, var(--accent-abs) 0%, var(--accent-abs) ${v}%, rgba(255, 255, 255, 0.16) ${v}%, rgba(255, 255, 255, 0.16) ${cap}%, rgba(239, 68, 68, 0.28) ${cap}%, rgba(239, 68, 68, 0.28) 100%)`;
   }
-  const label = document.getElementById("playerVolumeLabel");
-  if (label) {
-    label.innerText = currentVolumeMax < 100 ? `${v}% (Limit: ${currentVolumeMax}%)` : `${v}%`;
+
+  const capMarker = document.getElementById("playerVolumeCapMarker");
+  if (capMarker) {
+    if (cap < 100) {
+      capMarker.style.display = "block";
+      capMarker.style.left = `${cap}%`;
+      capMarker.title = `Yoto App Volume Limit: ${cap}%`;
+    } else {
+      capMarker.style.display = "none";
+    }
   }
+
+  const volLabel = document.getElementById("playerVolumeLabel");
+  if (volLabel) {
+    volLabel.innerText = cap < 100 ? `${v}% (Max ${cap}%)` : `${v}%`;
+  }
+  return v;
+}
+
+function onVolumeInput(val) {
+  isAdjustingVolume = true;
+  updateVolumeSliderUI(val, currentVolumeMax);
 }
 
 async function onVolumeChange(val) {
+  isAdjustingVolume = false;
   if (!activeDeviceId) return;
-  let v = parseInt(val, 10);
-  if (v > currentVolumeMax) {
-    v = currentVolumeMax;
-    const slider = document.getElementById("playerVolumeSlider");
-    if (slider) slider.value = v;
-  }
+  const v = updateVolumeSliderUI(val, currentVolumeMax);
   try {
     const res = await fetch("/api/player/transport", {
       method: "POST",
@@ -248,13 +270,9 @@ async function onVolumeChange(val) {
     });
     if (res.ok) {
       const resp = await res.json();
+      const maxLimit = (resp.volume_max != null) ? resp.volume_max : currentVolumeMax;
       if (resp.volume !== undefined) {
-        const slider = document.getElementById("playerVolumeSlider");
-        if (slider) slider.value = resp.volume;
-        const label = document.getElementById("playerVolumeLabel");
-        if (label) {
-          label.innerText = currentVolumeMax < 100 ? `${resp.volume}% (Limit: ${currentVolumeMax}%)` : `${resp.volume}%`;
-        }
+        updateVolumeSliderUI(resp.volume, maxLimit);
       }
     }
   } catch (err) {
