@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StoryDeck • Parent Portal</title>
   <link rel="icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_05">
+  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_07">
   <link rel="stylesheet" href="/static/css/portal.css?v=20261120_05">
 </head>
 <body class="dark-theme">
@@ -96,7 +96,7 @@
           <h2 id="portalPageTitle" class="topbar-page-title">Player</h2>
         </div>
         <div class="topbar-right">
-          <button type="button" id="coreConnectionPill" class="core-status-pill online" onclick="window.StoryDeckHealth && StoryDeckHealth.checkNow(true)" title="StoryDeck Core Server Health">
+          <button type="button" id="coreConnectionPill" class="core-status-pill online" onclick="window.StoryDeckHealth && StoryDeckHealth.handlePillClick()" title="StoryDeck Core Server Status & Version">
             <span class="core-status-dot"></span>
             <span class="core-status-text">Core Online</span>
           </button>
@@ -411,7 +411,7 @@
 
   <!-- Shared Shell & Portal Frontend Logic -->
   <script src="/static/js/sidebar.js?v=20261120_05"></script>
-  <script src="/static/js/core_health.js?v=20261120_05"></script>
+  <script src="/static/js/core_health.js?v=20261120_07"></script>
   <script src="/static/js/portal/core.js?v=20261120_05"></script>
   <script src="/static/js/portal/player.js?v=20261120_05"></script>
   <script src="/static/js/portal/library.js?v=20261120_05"></script>

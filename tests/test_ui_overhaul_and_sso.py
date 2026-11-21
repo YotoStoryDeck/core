@@ -124,6 +124,13 @@ class TestUIOverhaulAndSSO(unittest.TestCase):
             self.assertIn(expected, html)
 
         self.assertNotIn('class="dashboard-tabs"', html)
+        self.assertNotIn('id="coreVersionBadge"', html)
+
+        # Ensure Core version tag helper strips duplicate leading 'v' prefixes (prevents 'vv1.1.0')
+        with open("static/js/core_health.js", "r", encoding="utf-8") as f:
+            ch_js = f.read()
+        self.assertIn("function formatVersionTag", ch_js)
+        self.assertNotIn("`v${state.lastVersion}`", ch_js)
 
         parser = _SectionAndFormParser()
         parser.feed(html)

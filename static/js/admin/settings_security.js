@@ -97,10 +97,14 @@ async function executeRegenerateMasterApiKey() {
 // Core Version & Upstream Update Checker (Feature 022)
 // ============================================================================
 
+function _normalizeVersionTag(raw) {
+  const clean = String(raw || "").trim().replace(/^v+/i, "");
+  return clean ? `v${clean}` : "";
+}
+
 async function checkCoreUpdates(force = false) {
   const btn = document.getElementById("btnCheckUpdates");
   const badge = document.getElementById("versionStatusBadge");
-  const topNavBadge = document.getElementById("coreVersionBadge");
   const installedText = document.getElementById("installedVersionText");
   const latestText = document.getElementById("latestVersionText");
   const channelText = document.getElementById("releaseChannelText");
@@ -125,21 +129,17 @@ async function checkCoreUpdates(force = false) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const curVer = data.current_version || "v1.1.0-dev";
+    const curVer = _normalizeVersionTag(data.current_version || "v1.1.0-dev");
     const isPre = data.is_prerelease;
-    const hasUpdate = data.has_update;
-    const latestVer = data.latest_version || curVer;
+    const hasUpdate = Boolean(data.has_update);
+    const latestVer = _normalizeVersionTag(data.latest_version || curVer);
 
-    if (topNavBadge) {
-      if (hasUpdate) {
-        topNavBadge.classList.add("update-available");
-        topNavBadge.title = `Update available: ${latestVer} (Click to open Settings)`;
-        topNavBadge.innerHTML = `🚀 ${curVer} <span style="font-size:10px; opacity:0.9;">(${latestVer})</span>`;
-      } else {
-        topNavBadge.classList.remove("update-available");
-        topNavBadge.title = `StoryDeck Core ${curVer} (Up to date)`;
-        topNavBadge.innerText = curVer;
-      }
+    if (window.StoryDeckHealth && typeof window.StoryDeckHealth.setUpdateInfo === "function") {
+      window.StoryDeckHealth.setUpdateInfo({
+        currentVersion: curVer,
+        latestVersion: latestVer,
+        hasUpdate
+      });
     }
 
     if (installedText) installedText.innerText = curVer;

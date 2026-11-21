@@ -1,5 +1,5 @@
 // ============================================================================
-// StoryDeck Core Live Connection & Offline Awareness Monitor
+// StoryDeck Core Live Connection, Version & Offline Awareness Monitor
 // Shared across Parent Portal (/) and Admin Console (/admin).
 // ============================================================================
 
@@ -18,8 +18,25 @@
     lastLatencyMs: null,
     lastReason: "",
     checking: false,
-    timerId: null
+    timerId: null,
+    updateInfo: {
+      hasUpdate: false,
+      latestVersion: ""
+    }
   };
+
+  function formatVersionTag(raw) {
+    const clean = String(raw || "").trim().replace(/^v+/i, "");
+    return clean ? `v${clean}` : "";
+  }
+
+  function escapeHtmlText(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
 
   function scheduleNextProbe(delayMs) {
     if (state.timerId) {
@@ -48,26 +65,45 @@
     const isOffline = state.status === "offline";
     const isReconnecting = state.status === "reconnecting";
     const isOnline = state.status === "online";
+    const verTag = formatVersionTag(state.lastVersion);
+    const latestTag = formatVersionTag(state.updateInfo.latestVersion);
+    const hasUpdate = Boolean(state.updateInfo.hasUpdate && latestTag);
 
     document.body.classList.toggle("core-offline", isOffline);
     document.body.classList.toggle("core-reconnecting", isReconnecting);
 
     const pill = document.getElementById("coreConnectionPill");
     if (pill) {
-      pill.classList.remove("online", "reconnecting", "offline");
+      pill.classList.remove("online", "reconnecting", "offline", "has-update");
       pill.classList.add(state.status);
-      const textEl = pill.querySelector(".core-status-text");
+      if (isOnline && hasUpdate) {
+        pill.classList.add("has-update");
+      }
+
+      let textEl = pill.querySelector(".core-status-text");
+      if (!textEl) {
+        pill.innerHTML = `<span class="core-status-dot"></span><span class="core-status-text"></span>`;
+        textEl = pill.querySelector(".core-status-text");
+      }
+
       if (isOnline) {
-        if (textEl) textEl.innerText = "Core Online";
-        const verStr = state.lastVersion ? `v${state.lastVersion}` : "Connected";
+        if (hasUpdate && typeof switchTab === "function") {
+          textEl.innerHTML = `${verTag ? `Core ${escapeHtmlText(verTag)}` : "Core Online"} <span class="core-update-tag">🚀 ${escapeHtmlText(latestTag)}</span>`;
+        } else {
+          textEl.innerText = verTag ? `Core ${verTag}` : "Core Online";
+        }
         const latStr = state.lastLatencyMs !== null ? ` (${state.lastLatencyMs}ms)` : "";
-        pill.title = `StoryDeck Core ${verStr}${latStr} • Click to verify`;
+        const verDesc = verTag ? `StoryDeck Core ${verTag}` : "StoryDeck Core";
+        const updDesc = (hasUpdate && typeof switchTab === "function") ? ` • Update available: ${latestTag} (Click for Settings)` : " • Click to check health";
+        pill.title = `${verDesc} • Online${latStr}${updDesc}`;
       } else if (isReconnecting) {
-        if (textEl) textEl.innerText = "Reconnecting...";
-        pill.title = state.lastReason || "Reconnecting to StoryDeck Core...";
+        textEl.innerText = "Core Reconnecting...";
+        const verPrefix = verTag ? `StoryDeck Core ${verTag} • ` : "";
+        pill.title = `${verPrefix}${state.lastReason || "Reconnecting to StoryDeck Core..."}`;
       } else {
-        if (textEl) textEl.innerText = "Core Offline";
-        pill.title = state.lastReason || "StoryDeck Core is unreachable";
+        textEl.innerText = "Core Offline";
+        const verPrefix = verTag ? `StoryDeck Core ${verTag} • ` : "";
+        pill.title = `${verPrefix}${state.lastReason || "StoryDeck Core is unreachable"}`;
       }
     }
 
@@ -105,7 +141,7 @@
           reconnecting: isReconnecting,
           offline: isOffline,
           recovered,
-          version: state.lastVersion,
+          version: verTag,
           latencyMs: state.lastLatencyMs,
           reason: state.lastReason
         }
@@ -119,7 +155,9 @@
     state.consecutiveFailures = 0;
     state.lastHealthyAt = new Date();
     state.lastLatencyMs = latencyMs;
-    state.lastVersion = (payload && payload.version) ? String(payload.version) : state.lastVersion;
+    if (payload && payload.version) {
+      state.lastVersion = formatVersionTag(payload.version);
+    }
     state.lastReason = "";
     state.checking = false;
     applyHealthUI(prevStatus, false);
@@ -213,10 +251,33 @@
     }
   }
 
+  function setUpdateInfo(info) {
+    if (!info || typeof info !== "object") return;
+    if (info.currentVersion) {
+      state.lastVersion = formatVersionTag(info.currentVersion);
+    }
+    state.updateInfo = {
+      hasUpdate: Boolean(info.hasUpdate),
+      latestVersion: formatVersionTag(info.latestVersion)
+    };
+    applyHealthUI(state.status, false);
+  }
+
+  function handlePillClick() {
+    if (state.status === "online" && state.updateInfo.hasUpdate && typeof switchTab === "function") {
+      switchTab("settings");
+      return;
+    }
+    checkCoreHealth(true);
+  }
+
   window.StoryDeckHealth = {
     isOnline: () => state.status === "online",
     isOffline: () => state.status === "offline",
     getStatus: () => state.status,
+    formatVersionTag,
+    setUpdateInfo,
+    handlePillClick,
     checkNow: (manual = true) => checkCoreHealth(manual),
     reportNetworkError
   };

@@ -484,6 +484,24 @@ body.sidebar-mobile-open .sidebar-backdrop {
   border-color: rgba(16, 185, 129, 0.35);
 }
 
+.core-status-pill.online.has-update {
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
+.core-update-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 9999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
 .core-status-pill.online .core-status-dot,
 .sidebar-footer-dot.online {
   background: var(--accent-success);
