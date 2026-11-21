@@ -1,89 +1,59 @@
 """
 ESP32 device client communication, health checks, profile catalog feeds, and playback dispatch.
 """
+import json
 import time
 import secrets
+import base64
+from typing import Optional, Tuple
 import requests
 from flask import Blueprint, request, jsonify
 import database
 import clients
-from core.config import YOTO_BRIDGE_URL, logger
+from core.config import AVATARS_DIR, logger
 from core.auth import (
     require_device_jwt, create_device_jwt, decode_and_verify_device_jwt, get_current_device
 )
+from core.version_service import get_installed_version
 
-# Persistent HTTP session with keep-alive pool for low-latency Bridge/Yoto relay
-_http_session = requests.Session()
-_adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1)
-_http_session.mount("http://", _adapter)
-_http_session.mount("https://", _adapter)
-
-# Cached player volume ceilings (device_id -> {"max": int, "cached_at": float})
-_player_vol_cache = {}
-
-# In-memory presence cache for local home network verification
-_player_home_presence = {}  # device_id -> {"is_home": bool, "last_checked": float}
-def verify_player_home_presence(device_id: str, online: bool) -> bool:
-    """
-    Determines if a Yoto player is on the home network or away/traveling.
-    If the player is reported offline by Yoto Cloud, returns is_home=False.
-    If online, checks cached presence or verifies local presence.
-    """
-    if not online:
-        return False
-    now = time.time()
-    cached = _player_home_presence.get(device_id)
-    if cached and (now - cached.get("last_checked", 0) < 60):
-        return cached.get("is_home", True)
-    
-    # By default in home environment, online players with valid bridge connection are considered home
-    # unless flagged as traveling or client IP from bridge/stream indicates external egress
-    is_home = True
-    _player_home_presence[device_id] = {"is_home": is_home, "last_checked": now}
-    return is_home
 esp32_bp = Blueprint("esp32", __name__)
-@esp32_bp.route("/health", methods=["GET"])
-def health_check():
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
-    bridge_ok = bool(creds.get("yoto_bridge_url")) if mode == "bridge" else False
-    abs_ok = bool(creds.get("abs_api_key")) if mode == "bridge" else False
-    yoto_direct_ok = bool(creds.get("yoto_client_id") and creds.get("yoto_refresh_token"))
-    yoto_ok = bridge_ok if mode == "bridge" else yoto_direct_ok
-    ai_configured = clients.ai_service.is_configured() if (clients.ai_service and mode == "bridge") else False
-    ai_enabled = clients.ai_service.enabled if (clients.ai_service and mode == "bridge") else False
-    ai_provider = clients.ai_service.provider if clients.ai_service else "auto"
-    return jsonify({
-        "status": "healthy",
-        "version": clients.get_installed_version() if hasattr(clients, "get_installed_version") else __import__("core.version_service", fromlist=["get_installed_version"]).get_installed_version(),
-        "connection_mode": mode,
-        "features": {
-            "abs_enabled": abs_ok,
-            "yoto_enabled": yoto_ok,
-            "bridge_enabled": bridge_ok,
-            "bridge_primary": mode == "bridge",
-            "multi_profile": True,
-            "ai_chapter_art": {
-                "enabled": ai_enabled,
-                "configured": ai_configured,
-                "provider": ai_provider,
-                "fallback_to_bridge": bridge_ok
-            }
-        },
-        "abs_configured": abs_ok,
-        "yoto_configured": yoto_ok,
-        "yoto_bridge_url": creds.get("yoto_bridge_url", "") if mode == "bridge" else "",
-        "timestamp": int(time.time())
-    })
+
 # In-memory tracker of last played chapter per (child_id, media_id) or (device_id, media_id) for Yoto cards
 _yoto_resume_state = {}
 
 
+@esp32_bp.route("/health", methods=["GET"])
+def health_check():
+    creds = database.get_api_credentials()
+    abs_ok = bool(creds.get("abs_base_url") and creds.get("abs_api_key"))
+    yoto_ok = bool(creds.get("yoto_client_id") and creds.get("yoto_refresh_token"))
+    ai_enabled = bool(clients.ai_service and clients.ai_service.enabled)
+    ai_configured = bool(clients.ai_service and clients.ai_service.is_configured())
+    ai_provider = clients.ai_service.provider if clients.ai_service else "auto"
+    return jsonify({
+        "status": "healthy",
+        "version": get_installed_version(),
+        "connection_mode": "standalone",
+        "features": {
+            "abs_enabled": abs_ok,
+            "yoto_enabled": yoto_ok,
+            "embedded_bridge": True,
+            "multi_profile": True,
+            "ai_chapter_art": {
+                "enabled": ai_enabled,
+                "configured": ai_configured,
+                "provider": ai_provider
+            }
+        },
+        "abs_configured": abs_ok,
+        "yoto_configured": yoto_ok,
+        "timestamp": int(time.time())
+    })
+
+
 def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
     """Normalizes profile avatar_url to /api/avatar/<pid>?t=<mtime> when a custom avatar exists."""
-    from core.config import AVATARS_DIR
-    from routes.admin_profiles import _materialize_avatar_bytes_to_disk
-    import base64
+    from routes.admin_profiles import _materialize_avatar_bytes_to_disk, sync_all_bubble_avatars
 
     avatar_path = AVATARS_DIR / f"{pid}.jpg"
     raw_av = str(pdata.get("avatar_url") or "").strip()
@@ -117,7 +87,6 @@ def _resolve_profile_avatar_info(pid: str, pdata: dict) -> tuple[str, bool]:
 
     bubble_path = AVATARS_DIR / f"{pid}_bubble.jpg"
     if not bubble_path.exists():
-        from routes.admin_profiles import sync_all_bubble_avatars
         sync_all_bubble_avatars()
     if bubble_path.exists():
         mtime = int(bubble_path.stat().st_mtime)
@@ -144,6 +113,7 @@ def get_profiles():
         })
     return jsonify(profiles)
 
+
 def _resolve_client_type() -> str:
     """Detects whether client is a Tablet Kiosk / Web Companion or an ESP32 hardware device."""
     client_arg = (request.args.get("client") or request.args.get("device_type") or "").strip().lower()
@@ -161,13 +131,13 @@ def _resolve_client_type() -> str:
         logger.debug("Client type resolution fallback for device: %s", e)
     return "touch"
 
+
 @esp32_bp.route("/api/kids/<child_name>/abs", methods=["GET"])
 @require_device_jwt
 def get_child_abs(child_name: str):
     """
     Returns filtered Audiobookshelf books for the child profile.
     Scoped by child account token, dedicated library ID, and/or tag filter.
-    Microcontroller-optimized JSON array served with ultra-low latency from pre-indexed SQLite cache.
     """
     client_type = _resolve_client_type()
     try:
@@ -176,19 +146,16 @@ def get_child_abs(child_name: str):
             return jsonify(books)
     except Exception as e:
         logger.warning("Error fetching cached ABS catalog for %s: %s; falling back to live query.", child_name, e)
-    # Fallback to live query if cache is empty or throws error
     config = database.get_all_profiles()
     child_cfg = config.get(child_name.lower(), {})
     books = clients.abs_client.get_items_for_profile(child_cfg) if clients.abs_client else []
     return jsonify(books)
+
+
 @esp32_bp.route("/api/kids/<child_name>/yoto", methods=["GET"])
 @require_device_jwt
 def get_child_yoto(child_name: str):
-    """
-    Returns curated Yoto playlists/cards for the child based on shared
-    and profile-specific curation rules.
-    Microcontroller-optimized JSON array served with ultra-low latency from pre-indexed SQLite cache.
-    """
+    """Returns curated Yoto playlists/cards for the child based on shared and profile rules."""
     client_type = _resolve_client_type()
     try:
         playlists = database.get_catalog_items_for_profile(child_name.lower(), "yoto", client_type=client_type)
@@ -196,7 +163,6 @@ def get_child_yoto(child_name: str):
             return jsonify(playlists)
     except Exception as e:
         logger.warning("Error fetching cached Yoto catalog for %s: %s; falling back to live query.", child_name, e)
-    # Fallback to live query if cache is empty or throws error
     profiles = database.get_all_profiles()
     shared_cfg = database.get_shared_rules()
     profile_cfg = profiles.get(child_name.lower(), {})
@@ -208,14 +174,13 @@ def get_child_yoto(child_name: str):
             shared_cfg=shared_cfg
         )
     return jsonify(playlists)
+
+
 @esp32_bp.route("/api/media/<media_id>/tracks", methods=["GET"])
 @require_device_jwt
 def get_device_media_tracks(media_id: str):
-    """
-    Returns chapter and track breakdown for a media item (ABS audiobook or Yoto card).
-    Consumed by bedside controllers and tablet kiosks for track selection & detail views.
-    """
-    from routes.admin_curation import get_media_tracks_data
+    """Returns sanitized chapter and track breakdown for a media item."""
+    from core.media_utils import get_media_tracks_data
     try:
         data = get_media_tracks_data(media_id)
         if isinstance(data, dict):
@@ -229,25 +194,25 @@ def get_device_media_tracks(media_id: str):
     except Exception as e:
         logger.exception("Error getting device tracks for %s: %s", media_id, e)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @esp32_bp.route("/api/devices/register", methods=["POST"])
 @esp32_bp.route("/api/device/register", methods=["POST"])
 def register_device():
     """
     Self-announcement handshake called by ESP32 devices upon completing Wi-Fi.
-    If the device is approved, provisions/returns rotating JWT access & refresh tokens.
-    If pending approval, returns status: pending_approval (HTTP 202).
+    If approved, provisions/returns rotating JWT access & refresh tokens.
     """
     data = request.get_json(silent=True) or {}
     mac = data.get("mac_address") or data.get("mac") or data.get("device_id")
     friendly_name = data.get("friendly_name", "ESP32 Controller")
-    # Prioritize explicit client IP from device payload, followed by reverse-proxy headers
     ip_addr = data.get("ip_address") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.headers.get("X-Real-IP") or request.remote_addr or ""
     firmware_ver = data.get("firmware_version", "1.0.0")
     boot_state = (data.get("boot_state") or "").strip().lower()
     if not mac:
         return jsonify({"ok": False, "error": "Missing mac_address"}), 400
     mac_clean = mac.lower().strip()
-    device_info = database.register_esp32_device(mac_clean, friendly_name, ip_addr, firmware_ver, boot_state=boot_state)
+    database.register_esp32_device(mac_clean, friendly_name, ip_addr, firmware_ver, boot_state=boot_state)
     dev_record = database.get_esp32_device(mac_clean)
     is_approved = bool(dev_record.get("is_approved")) if dev_record else False
     if not is_approved:
@@ -257,7 +222,6 @@ def register_device():
             "mac_address": mac_clean,
             "message": "Device registered in quarantine. Awaiting administrator approval in Web Portal."
         }), 202
-    # Device is approved: generate or retrieve jwt_secret and issue token pair
     jwt_secret = dev_record.get("jwt_secret")
     token_ver = int(dev_record.get("token_version") or 1)
     if not jwt_secret:
@@ -279,12 +243,11 @@ def register_device():
             "refresh_expires_in": 2592000
         }
     }), 200
+
+
 @esp32_bp.route("/api/device/auth/refresh", methods=["POST"])
 def refresh_device_token():
-    """
-    Called by ESP32 periodically (e.g. every 12-20h) to exchange its 30-day refresh
-    token for a fresh 24-hour access token.
-    """
+    """Exchanges a 30-day refresh token for a fresh 24-hour access token."""
     data = request.get_json(silent=True) or {}
     mac = (data.get("mac_address") or data.get("mac") or "").lower().strip()
     refresh_tok = data.get("refresh_token") or ""
@@ -302,11 +265,9 @@ def refresh_device_token():
     claims = decode_and_verify_device_jwt(refresh_tok, jwt_secret)
     if not claims or claims.get("type") != "refresh":
         return jsonify({"error": "invalid_token", "message": "Invalid or expired refresh token."}), 403
-    # Check token version for immediate revocation
     curr_ver = int(dev.get("token_version") or 1)
     if int(claims.get("ver", -1)) != curr_ver:
         return jsonify({"error": "token_revoked", "message": "Device token version has been revoked."}), 403
-    # Issue fresh access token (24h)
     assigned_prof = dev.get("assigned_profile_id") or ""
     new_access_token = create_device_jwt(mac, assigned_prof, jwt_secret, curr_ver, "access", expires_in=86400)
     return jsonify({
@@ -314,19 +275,16 @@ def refresh_device_token():
         "access_token": new_access_token,
         "expires_in": 86400
     }), 200
+
+
 @esp32_bp.route("/api/device/config", methods=["GET"])
 def get_device_config():
-    """
-    Queried by ESP32 on boot to identify hardware-assigned default profile
-    and available alternate profiles.
-    """
+    """Returns device boot configuration, profiles, players, and OTA state."""
     device_id = request.args.get("device_id") or request.args.get("mac")
     device = database.get_esp32_device(device_id) if device_id else None
-    # Check quarantine approval gate
     is_approved = bool(device["is_approved"]) if device else True
     assigned_prof = device["assigned_profile_id"] if (device and is_approved) else None
     all_profs = database.get_all_profiles()
-    # Resolve friendly player details and live status using unified player service
     from core.player_service import get_live_players_map
     player_map = get_live_players_map()
     from routes.admin_profiles import compute_household_monograms, PALETTE_COLORS
@@ -335,13 +293,11 @@ def get_device_config():
     for pid, pdata in all_profs.items():
         avatar, has_custom_av = _resolve_profile_avatar_info(pid, pdata)
         def_id = pdata.get("default_player_id", "")
-        # Assemble list of all player objects linked to this profile
         p_ids = list(pdata.get("player_ids", []))
         if def_id and def_id not in p_ids:
             p_ids.insert(0, def_id)
-        profile_players = []
-        for did in p_ids:
-            info = player_map.get(did, {
+        profile_players = [
+            player_map.get(did, {
                 "id": did,
                 "name": "Yoto Player",
                 "online": False,
@@ -350,11 +306,11 @@ def get_device_config():
                 "volume": 50,
                 "volume_max": 100
             })
-            profile_players.append(info)
+            for did in p_ids
+        ]
         def_info = player_map.get(def_id)
         def_name = def_info["name"] if def_info else (profile_players[0]["name"] if profile_players else "Yoto Player")
 
-        # Resolve avatar color and smart household monogram for native LVGL fallback
         av_color = pdata.get("avatar_color") or ""
         if not av_color.startswith("#"):
             clean_str = (pdata.get("display_name") or pid).strip().lower()
@@ -387,8 +343,7 @@ def get_device_config():
     dev_settings = {}
     if device and device.get("settings_json"):
         try:
-            import json as _json
-            dev_settings = _json.loads(device["settings_json"]) or {}
+            dev_settings = json.loads(device["settings_json"]) or {}
         except Exception:
             dev_settings = {}
     can_switch = (len(profile_summaries) > 1) and not bool(assigned_prof)
@@ -417,10 +372,8 @@ def get_device_config():
 def update_device_settings():
     """
     Persists Grown-Ups settings (Parent PIN, lock_player, locked_player_id,
-    sleep timer, bedtime/wake schedules, clock size, blockRemotePlayback) back to
-    StoryDeck Core SQLite database so Admin Portal and controller stay 100% synced.
+    sleep timer, bedtime/wake schedules, clock size, blockRemotePlayback) back to SQLite.
     """
-    import json as _json
     data = request.get_json(force=True, silent=True) or {}
     device_id = (data.get("device_id") or data.get("mac") or request.args.get("device_id") or "").lower().strip()
     if not device_id:
@@ -450,29 +403,44 @@ def update_device_settings():
         existing_settings = {}
         if dev and dev.get("settings_json"):
             try:
-                existing_settings = _json.loads(dev["settings_json"]) or {}
+                existing_settings = json.loads(dev["settings_json"]) or {}
             except Exception:
                 existing_settings = {}
         existing_settings.update(data["settings"])
-        updates["settings_json"] = _json.dumps(existing_settings)
+        updates["settings_json"] = json.dumps(existing_settings)
 
     if updates:
         database.update_esp32_device(device_id, updates)
 
     return jsonify({"ok": True, "device_id": device_id, "updated": list(updates.keys())})
+
+
+def _dispatch_card_start(device_id: str, card_id: str, chapter: int,
+                         chapter_key: str = None, track_key: str = None) -> Tuple[bool, Optional[str], int]:
+    """Starts playback via embedded MQTT first, falling back to Yoto Cloud REST."""
+    from core.bridge.mqtt_client import get_mqtt_bridge
+    from core.bridge.playback import get_playback_manager
+
+    get_playback_manager().expect(device_id, card_id)
+    mqtt = get_mqtt_bridge()
+    if mqtt.is_connected and mqtt.play(device_id, card_id, track=chapter):
+        return True, None, 200
+
+    if not clients.yoto_client:
+        return False, "Yoto client not configured", 503
+
+    if clients.yoto_client.start_playback(device_id, card_id, chapter=chapter, chapter_key=chapter_key, track_key=track_key):
+        return True, None, 200
+    return False, "Yoto player command failed", 502
+
+
 @esp32_bp.route("/api/play", methods=["POST"])
 @require_device_jwt
 def play_media():
     """
-    Unified playback execution route for the ESP32.
-    Payload:
-      {
-        "child": "<profile_id>",
-        "type": "abs" | "yoto",
-        "id": "<media_id>",
-        "device_id": "<optional_specific_device_id>",
-        "chapter": 1
-      }
+    Unified native playback execution route for Touch controllers and Kiosks.
+    Supports both official/MYO Yoto cards ('type': 'yoto') and native
+    Audiobookshelf streaming/offline cards ('type': 'abs').
     """
     data = request.get_json(force=True, silent=True) or {}
     child = str(data.get("child") or data.get("profile_id") or "default").lower()
@@ -483,10 +451,10 @@ def play_media():
     explicit_chapter = int(raw_ch) if (raw_ch is not None and str(raw_ch).strip() != "" and int(raw_ch) > 0) else None
     if not media_id:
         return jsonify({"ok": False, "error": "Missing media id"}), 400
+
     config = database.get_all_profiles()
     child_cfg = config.get(child, {})
-    # Resolve target Yoto player
-    allowed_players = child_cfg.get("player_ids") or []
+    allowed_players = list(child_cfg.get("player_ids") or [])
     default_player = child_cfg.get("default_player_id") or ""
     if default_player and default_player not in allowed_players:
         allowed_players.append(default_player)
@@ -494,134 +462,119 @@ def play_media():
         device_id = default_player or (allowed_players[0] if allowed_players else "")
     if not device_id:
         return jsonify({"ok": False, "error": f"No target player resolved for child '{child}'"}), 400
+
     logger.info("Executing play: child=%s, type=%s, media=%s, device=%s, explicit_ch=%s", child, media_type, media_id, device_id, explicit_chapter)
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
+
     if media_type == "yoto":
-        # If no explicit chapter was passed, resume from the profile/player's last played chapter for this Yoto card
         chapter = explicit_chapter or _yoto_resume_state.get((child, media_id)) or _yoto_resume_state.get((device_id, media_id)) or 1
         _yoto_resume_state[(child, media_id)] = chapter
         _yoto_resume_state[(device_id, media_id)] = chapter
         chapter_title = ""
-        # 1. Bridge Mode: Route to Bridge /api/play so user needs zero separate Yoto credentials
-        if mode == "bridge" and creds.get("yoto_bridge_url"):
-            active_bridge_url = creds.get("yoto_bridge_url").rstrip("/")
-            bridge_url = f"{active_bridge_url}/api/play"
-            raw_ck = str(data.get("chapter_key") or "").strip() if explicit_chapter else ""
-            raw_tk = str(data.get("track_key") or "").strip() if explicit_chapter else ""
-            chapter_key = None if (raw_ck.isdigit() and len(raw_ck) == 1) else (raw_ck or None)
-            track_key = None if (raw_tk.isdigit() and len(raw_tk) == 1) else (raw_tk or None)
-            if not track_key or not chapter_key or not chapter_title:
-                try:
-                    if clients.yoto_client:
-                        cdetail = clients.yoto_client.get_card_detail(media_id)
-                        if cdetail:
-                            c_obj = cdetail.get("content") or cdetail.get("card", {}).get("content") or {}
-                            chaps = c_obj.get("chapters", [])
-                            if chaps:
-                                t_idx = max(0, min(len(chaps) - 1, chapter - 1))
-                                chapter = t_idx + 1
-                                tgt = chaps[t_idx]
-                                chapter_title = tgt.get("title") or ""
-                                chapter_key = chapter_key or tgt.get("key")
-                                trks = tgt.get("tracks", [])
-                                if trks:
-                                    track_key = track_key or trks[0].get("key")
-                                else:
-                                    track_key = track_key or tgt.get("key")
-                except Exception as ke:
-                    logger.debug("Notice extracting keys for %s: %s", media_id, ke)
-            payload = {
-                "card_id": media_id,
-                "device_id": device_id,
-                "chapter": chapter
-            }
-            if chapter_key:
-                payload["chapter_key"] = chapter_key
-            if track_key:
-                payload["track_key"] = track_key
-            bridge_headers = {}
-            if creds.get("yoto_bridge_api_key"):
-                bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
-            try:
-                logger.info("Routing Yoto card playback to Bridge (%s): card=%s, player=%s, ch=%d", bridge_url, media_id, device_id, chapter)
-                res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
-                if res.status_code in (200, 204):
-                    logger.info("Bridge accepted Yoto card play: HTTP %d (Status: playing)", res.status_code)
-                    database.record_playback(media_id, child)
-                    return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
-                logger.warning("Bridge returned HTTP %d for Yoto card play: %s", res.status_code, res.text)
-                return jsonify({"ok": False, "error": f"Bridge rejected Yoto card playback (HTTP {res.status_code})"}), res.status_code
-            except Exception as e:
-                logger.error("Failed to communicate with Yoto Bridge during card play: %s", e)
-                return jsonify({"ok": False, "error": f"Bridge communication error: {str(e)}"}), 502
-        # 2. Direct Cloud Fallback
-        if not clients.yoto_client:
-            logger.error("Yoto direct client not initialized; cannot fallback for card %s", media_id)
-            return jsonify({"ok": False, "error": "Yoto client not initialized"}), 502
-        logger.info("Routing Yoto card play to direct Yoto Cloud API: card=%s, player=%s", media_id, device_id)
+
         raw_ck = str(data.get("chapter_key") or "").strip() if explicit_chapter else ""
         raw_tk = str(data.get("track_key") or "").strip() if explicit_chapter else ""
         ck_val = None if (raw_ck.isdigit() and len(raw_ck) == 1) else (raw_ck or None)
         tk_val = None if (raw_tk.isdigit() and len(raw_tk) == 1) else (raw_tk or None)
-        success = clients.yoto_client.start_playback(device_id, media_id, chapter, chapter_key=ck_val, track_key=tk_val)
-        if success:
-            logger.info("Direct Yoto Cloud accepted playback command for %s", device_id)
-            database.record_playback(media_id, child)
-            return jsonify({"ok": True, "status": "playing", "type": "yoto", "device_id": device_id, "chapter": chapter, "chapter_title": chapter_title})
-        logger.error("Direct Yoto Cloud play command failed for player %s", device_id)
-        return jsonify({"ok": False, "error": "Yoto player command failed"}), 502
+
+        if clients.yoto_client and (not tk_val or not ck_val or not chapter_title):
+            try:
+                cdetail = clients.yoto_client.get_card_detail(media_id)
+                if cdetail:
+                    c_obj = cdetail.get("content") or cdetail.get("card", {}).get("content") or {}
+                    chaps = c_obj.get("chapters", [])
+                    if chaps:
+                        t_idx = max(0, min(len(chaps) - 1, chapter - 1))
+                        chapter = t_idx + 1
+                        tgt = chaps[t_idx]
+                        chapter_title = tgt.get("title") or ""
+                        ck_val = ck_val or tgt.get("key")
+                        trks = tgt.get("tracks", [])
+                        tk_val = tk_val or (trks[0].get("key") if trks else tgt.get("key"))
+            except Exception as ke:
+                logger.debug("Notice extracting keys for %s: %s", media_id, ke)
+
+        ok, err_msg, code = _dispatch_card_start(device_id, media_id, chapter, chapter_key=ck_val, track_key=tk_val)
+        if not ok:
+            return jsonify({"ok": False, "error": err_msg}), code
+
+        database.record_playback(media_id, child)
+        return jsonify({
+            "ok": True,
+            "status": "playing",
+            "type": "yoto",
+            "device_id": device_id,
+            "chapter": chapter,
+            "chapter_title": chapter_title
+        })
+
     elif media_type == "abs":
-        creds = database.get_api_credentials()
-        active_bridge_url = creds.get("yoto_bridge_url", YOTO_BRIDGE_URL).rstrip("/")
-        bridge_url = f"{active_bridge_url}/api/play"
-        payload = {
-            "item_id": media_id,
-            "device_id": device_id
-        }
-        # Only send explicit chapter when user picked a specific chapter; omit when resuming book progress!
-        if explicit_chapter is not None:
-            payload["chapter"] = explicit_chapter
-        bridge_headers = {}
-        if creds.get("yoto_bridge_api_key"):
-            bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
-        try:
-            logger.info("Routing Audiobookshelf playback to Bridge (%s): item=%s, player=%s, explicit_ch=%s", bridge_url, media_id, device_id, explicit_chapter)
-            res = requests.post(bridge_url, json=payload, headers=bridge_headers, timeout=10)
-            if res.status_code in (200, 204):
-                b_data = res.json() if res.content else {}
-                resumed_ch = b_data.get("chapter") or explicit_chapter or 1
-                resumed_title = b_data.get("chapter_title") or ""
-                resumed_pos = b_data.get("position") or 0
-                logger.info("Bridge accepted ABS stream dispatch: HTTP %d (ch=%s, pos=%s)", res.status_code, resumed_ch, resumed_pos)
-                database.record_playback(media_id, child)
-                return jsonify({
-                    "ok": True,
-                    "status": "playing",
-                    "type": "abs",
-                    "device_id": device_id,
-                    "chapter": resumed_ch,
-                    "chapter_title": resumed_title,
-                    "position": resumed_pos
-                })
-            logger.warning("Bridge returned HTTP %d for ABS stream: %s", res.status_code, res.text)
-            return jsonify({"ok": False, "error": f"Bridge rejected ABS playback (HTTP {res.status_code})"}), res.status_code
-        except Exception as e:
-            logger.error("Failed to route ABS stream to Yoto Bridge: %s", e)
-            return jsonify({"ok": False, "error": f"Bridge communication error: {str(e)}"}), 502
+        from core.bridge.manager import get_bridge_manager
+        from core.bridge.offline import get_offline_manager
+
+        base_url = request.host_url.rstrip("/")
+        mgr = get_bridge_manager()
+        if child in config:
+            slot = mgr.update_profile_primary_card(profile_id=child, abs_item_id=media_id, mode_override="default", base_url=base_url)
+        else:
+            slot = mgr.assign_to_fleet_card(slot_id=f"profile_{child}", abs_item_id=media_id, base_url=base_url)
+
+        slot_key = slot.get("slot_id") or f"profile_{child}"
+        slot_mode = slot.get("mode", "streaming")
+        yoto_cid = slot.get("yoto_card_id") or slot_key
+
+        if slot_mode == "offline":
+            get_offline_manager().queue_transcode(slot_key, base_url=base_url)
+        elif clients.yoto_client:
+            try:
+                saved_id = clients.yoto_client.save_stream_playlist(
+                    title=slot.get("title", "Audiobook"),
+                    tracks=slot.get("tracks", []),
+                    card_id=yoto_cid,
+                    cover_url=f"{base_url}/api/cover/{media_id}",
+                    description=f"Streams {slot.get('title', '')} from Audiobookshelf"
+                )
+                if saved_id:
+                    yoto_cid = saved_id
+                    if saved_id != slot.get("yoto_card_id"):
+                        conn = database.get_db_connection()
+                        try:
+                            with conn:
+                                conn.execute("UPDATE bridge_slots SET yoto_card_id = ? WHERE slot_id = ?;", (saved_id, slot_key))
+                        finally:
+                            conn.close()
+            except Exception as e:
+                logger.warning("Failed to save stream playlist for %s: %s", media_id, e)
+
+        target_ch = explicit_chapter or 1
+        tracks = slot.get("tracks") or []
+        chapter_title = ""
+        if 1 <= target_ch <= len(tracks):
+            chapter_title = tracks[target_ch - 1].get("title") or ""
+
+        ok, err_msg, code = _dispatch_card_start(device_id, yoto_cid, target_ch)
+        if not ok:
+            return jsonify({"ok": False, "error": err_msg}), code
+
+        database.record_playback(media_id, child)
+        return jsonify({
+            "ok": True,
+            "status": "playing",
+            "type": "abs",
+            "device_id": device_id,
+            "card_id": yoto_cid,
+            "slot_id": slot_key,
+            "chapter": target_ch,
+            "chapter_title": chapter_title,
+            "position": 0
+        })
+
     return jsonify({"ok": False, "error": f"Unsupported media type '{media_type}'"}), 400
+
+
 @esp32_bp.route("/api/player/control", methods=["POST"])
 @require_device_jwt
 def control_player():
-    """
-    Unified playback control route for Touchscreen and hardware controllers.
-    Payload:
-      {
-        "device_id": "<player_device_id>",
-        "action": "pause" | "resume" | "stop" | "next" | "prev" | "volume",
-        "volume": 0-100 (for volume action)
-      }
-    """
+    """Unified playback control route for Touchscreen and hardware controllers."""
     data = request.get_json(force=True, silent=True) or {}
     device_id = data.get("device_id")
     action = data.get("action")

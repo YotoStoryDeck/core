@@ -326,7 +326,8 @@ class TestPhase4SeriesOverrides(unittest.TestCase):
             'id="editSeriesModal"',
             'id="batchSeriesModal"',
             'openBatchSeriesModal()',
-            '/static/js/admin/library.js?v=20261120_01',
+            '/static/js/admin/series.js?v=',
+            '/static/js/admin/library.js?v=',
         ):
             self.assertIn(token, html, f"Expected {token} in /admin HTML")
 

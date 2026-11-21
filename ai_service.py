@@ -12,9 +12,6 @@ Features:
   - Nearest-Neighbor rasterization & upscaling to 100x100 for ESP32 display.
   - Text fallback heuristic: Extracts opening narrative text/description when
     chapter titles are non-descriptive (e.g. "Chapter 1", "Track 02").
-  - Upstream sync: Pushes generated pixel icons directly to yoto-audiobookshelf-bridge
-    so the physical Yoto player's 16x16 pixel display shows the exact same icon!
-  - Bridge fallback: If AI is disabled or fails, pulls chapter icons from the bridge.
 ==============================================================================
 """
 
@@ -92,8 +89,7 @@ class PixelArtRenderer:
 
 
 class AIService:
-    def __init__(self, bridge_url: str, cache_dir: Path):
-        self.bridge_url = bridge_url.rstrip("/")
+    def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir / "ai_chapters"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -231,32 +227,4 @@ class AIService:
                 return palette, rows
         except Exception as e:
             logger.warning("Failed to parse pixel art grid JSON: %s (Raw: %s)", e, raw_text[:120])
-        return None
-
-    def sync_upstream_to_bridge(self, book_item_id: str, chapter_idx: int, palette: List[str], rows: List[str]):
-        if not self.bridge_url:
-            return
-        try:
-            url = f"{self.bridge_url}/api/custom-icon"
-            payload = {
-                "item_id": book_item_id,
-                "chapter": chapter_idx,
-                "palette": palette,
-                "rows": rows
-            }
-            requests.post(url, json=payload, timeout=5)
-            logger.info("Successfully synced 16x16 icon to Yoto Bridge for %s ch %d", book_item_id, chapter_idx)
-        except Exception as e:
-            logger.debug("Upstream bridge icon sync notice: %s", e)
-
-    def fetch_bridge_icon_fallback(self, book_item_id: str, chapter_idx: int) -> Optional[bytes]:
-        if not self.bridge_url:
-            return None
-        try:
-            url = f"{self.bridge_url}/api/cards/preview-icon?item_id={book_item_id}&chapter={chapter_idx}"
-            res = requests.get(url, timeout=6)
-            if res.status_code == 200 and res.content:
-                return res.content
-        except Exception as e:
-            logger.debug("Bridge chapter icon fallback check notice: %s", e)
         return None

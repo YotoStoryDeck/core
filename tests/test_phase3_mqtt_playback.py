@@ -130,7 +130,6 @@ class TestPhase3MqttPlayback(unittest.TestCase):
 
     def test_player_service_direct_mode_merges_mqtt_and_dispatches_controls(self):
         """player_service merges live MQTT telemetry in direct mode and routes transport commands."""
-        database.update_api_credentials({"yoto_connection_mode": "direct", "yoto_bridge_url": ""})
         database.upsert_media_items([{
             "id": "abs_p3_item",
             "type": "abs",

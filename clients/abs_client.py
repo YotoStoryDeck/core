@@ -220,10 +220,6 @@ class ABSClient:
         results.sort(key=lambda x: re.sub(r"^(the|a|an)\s+", "", x["title"].strip(), flags=re.IGNORECASE).lower())
         return results
 
-    def get_items_by_tag(self, tag: str) -> List[Dict[str, Any]]:
-        """Legacy helper: retrieves books by tag across all libraries using default key."""
-        return self.get_items_for_profile({"abs_tag": tag})
-
     def get_item(self, item_id: str, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Fetches full item details including chapters and description from Audiobookshelf."""
         headers = self.get_headers(token)
@@ -235,14 +231,6 @@ class ABSClient:
         except Exception as e:
             logger.error("ABS get_item error for %s: %s", item_id, e)
         return None
-
-    def get_item_tags(self, item_id: str) -> List[str]:
-        """Retrieves list of tags assigned to a book media item."""
-        data = self.get_item(item_id)
-        if not data:
-            return []
-        media = data.get("media", {})
-        return media.get("tags") or []
 
     def update_item_chapters(self, item_id: str, chapters: List[Dict[str, Any]]) -> bool:
         """Updates the chapter structure / track titles on an Audiobookshelf book via POST /api/items/{id}/chapters."""

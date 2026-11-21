@@ -1,0 +1,213 @@
+/* ==============================================================================
+   CURATION MATRIX, PROFILE PICKER & SERIES SEQUENCER STYLES
+   ============================================================================== */
+
+tr.row-selected {
+  background: rgba(99, 102, 241, 0.09) !important;
+}
+
+tr.row-selected:hover {
+  background: rgba(99, 102, 241, 0.14) !important;
+}
+
+.bulk-checkbox {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+  accent-color: var(--accent-yoto);
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.bulk-action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(120%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: rgba(24, 27, 36, 0.88);
+  border: 1px solid rgba(229, 53, 43, 0.35);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.6), 0 0 24px rgba(229, 53, 43, 0.15);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
+  opacity: 0;
+  pointer-events: none;
+  max-width: 95vw;
+  flex-wrap: wrap;
+}
+
+.bulk-action-bar.active {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bulk-counter {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-counter-pill {
+  background: var(--accent-yoto);
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bulk-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-subtle);
+}
+
+.bulk-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Custom Profile Picker (Viewing For with Avatars) */
+.custom-profile-picker {
+  position: relative;
+  display: inline-block;
+}
+
+.custom-profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-width: 170px;
+  text-align: left;
+}
+
+.custom-profile-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-focus);
+}
+
+.picker-avatar-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.picker-caret {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.custom-profile-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.custom-profile-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: background var(--transition-fast);
+}
+
+.custom-profile-opt:hover {
+  background: var(--bg-surface-hover);
+}
+
+.custom-profile-opt.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* Yoto Card Manual Series Overrides & Bulk Sequencer (DLP-021) */
+.badge-series-override {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.batch-series-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.batch-series-row.dragging {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.batch-series-row.drag-over {
+  border-color: #818cf8;
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+  padding: 4px 2px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.batch-seq-input {
+  width: 62px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 4px 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-primary);
+}

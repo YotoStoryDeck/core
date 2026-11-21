@@ -655,8 +655,7 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
                 ]
             }
         }
-        with patch.object(clients.abs_client, "get_item", return_value=mock_abs_item), \
-             patch.object(clients.yoto_client, "push_item_chapter_icons_batch", return_value=True):
+        with patch.object(clients.abs_client, "get_item", return_value=mock_abs_item):
             res = self.client.post(f"/api/admin/media/{abs_item_id}/tracks/batch-icon", json={
                 "type": "abs",
                 "track_indices": [0],
@@ -885,7 +884,6 @@ class TestCurationMatrixAndYotoRetail(unittest.TestCase):
             # 1. Update Yoto credentials via PUT
             res_put = self.client.put("/api/admin/settings/credentials", json={
                 "yoto_client_id": "test_client_id_12345",
-                "yoto_client_secret": "test_secret_67890",
                 "yoto_refresh_token": "test_refresh_abcde"
             })
             self.assertEqual(res_put.status_code, 200)

@@ -55,7 +55,6 @@ async function openTracklistModal(mediaId) {
     // Render header actions
     actionsEl.innerHTML = "";
     if (data.can_edit) {
-      const isAbs = (data.type === "abs");
       actionsEl.innerHTML = `
         <button type="button" class="btn btn-sm btn-secondary" onclick="toggleBatchRenameDrawer()">
           📝 Rename Tracks
@@ -63,10 +62,6 @@ async function openTracklistModal(mediaId) {
         <button type="button" class="btn btn-sm btn-secondary" onclick="autoMatchCurrentTrackIcons()">
           ⚡ Auto-Match
         </button>
-        ${isAbs ? `
-        <button type="button" class="btn btn-sm btn-primary" id="btnSyncBridgeIcons" onclick="syncCurrentTrackIconsToBridge()">
-          🔄 Sync to Bridge
-        </button>` : ''}
       `;
     } else {
 
@@ -355,38 +350,6 @@ async function autoMatchCurrentTrackIcons() {
     }
   } catch (err) {
     showToast("Network error during auto-match: " + err.message, "error");
-  }
-}
-
-async function syncCurrentTrackIconsToBridge() {
-  if (!currentTracklistMedia || !currentTracklistMedia.id) return;
-  const mediaId = currentTracklistMedia.id;
-  const btn = document.getElementById("btnSyncBridgeIcons");
-
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = "⏳ Syncing...";
-  }
-
-  showToast("Pushing local custom chapter icons to Yoto Bridge...", "info");
-
-  try {
-    const res = await fetch(`/api/admin/media/${encodeURIComponent(mediaId)}/sync-bridge-icons`, {
-      method: "POST"
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`✅ ${data.message}`);
-    } else {
-      showToast("Sync to Bridge failed: " + (data.error || "Unknown error"), "error");
-    }
-  } catch (err) {
-    showToast("Network error syncing to Bridge: " + err.message, "error");
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerText = "🔄 Sync to Bridge";
-    }
   }
 }
 

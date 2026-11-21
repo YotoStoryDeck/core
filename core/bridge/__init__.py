@@ -22,10 +22,8 @@ def start_bridge_services():
     pb.start_sync_loop()
 
     creds = database.get_api_credentials()
-    mode = (creds.get("yoto_connection_mode") or "").strip().lower()
-    bridge_url = (creds.get("yoto_bridge_url") or "").strip()
     has_yoto_creds = bool((creds.get("yoto_client_id") or "").strip() and (creds.get("yoto_refresh_token") or "").strip())
-    if mode == "direct" or (not bridge_url and has_yoto_creds):
+    if has_yoto_creds:
         mqtt.start()
 
 

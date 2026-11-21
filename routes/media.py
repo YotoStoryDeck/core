@@ -135,24 +135,21 @@ def serve_thumbnail():
                     palette, rows = grid
                     rendered_img = PixelArtRenderer.render(palette, rows, target_size=size)
                     if rendered_img:
-                        # Upstream sync to Yoto ABS Bridge so physical Yoto player matches!
-                        clients.ai_service.sync_upstream_to_bridge(item_id, chapter_idx, palette, rows)
+                        # Save 16x16 PNG locally in CUSTOM_ICONS_DIR so /s/icon serves it directly to Yoto Players
+                        if not custom_path.exists():
+                            try:
+                                img_16 = PixelArtRenderer.render(palette, rows, target_size=16)
+                                if img_16:
+                                    b16 = io.BytesIO()
+                                    img_16.save(b16, format="PNG")
+                                    custom_path.write_bytes(b16.getvalue())
+                            except Exception as e:
+                                logger.debug("Could not cache AI 16x16 icon for %s ch %d: %s", item_id, chapter_idx, e)
                         buf = io.BytesIO()
                         rendered_img.save(buf, format="JPEG", quality=85)
                         return buf.getvalue()
 
-            # 2. Upstream Bridge Item-Level Chapter Icon Fallback
-            if clients.yoto_client:
-                item_icon = clients.yoto_client.get_item_chapter_icon(item_id, chapter_idx + 1)
-                if item_icon:
-                    return item_icon
-
-            if clients.ai_service:
-                bridge_icon = clients.ai_service.fetch_bridge_icon_fallback(item_id, chapter_idx)
-                if bridge_icon:
-                    return bridge_icon
-
-            # 3. Parent Book Cover Fallback
+            # 2. Parent Book Cover Fallback
             abs_url = (clients.abs_client.base_url if clients.abs_client and clients.abs_client.base_url else ABS_BASE_URL).rstrip("/")
             cover_url = f"{abs_url}/api/items/{item_id}/cover"
             headers = clients.abs_client.get_headers() if clients.abs_client else {}

@@ -149,8 +149,8 @@ def perform_library_refresh() -> int:
                 s_name = c.get("series") or ""
                 s_ord = c.get("series_order") or ""
 
-                # Lazy import helper from routes.admin_curation
-                from routes.admin_curation import extract_series_list
+                # Lazy import helper from core.media_utils
+                from core.media_utils import extract_series_list
                 series_list = extract_series_list(s_name, s_ord, title=c_title, known_series=list(known_series_set))
 
                 for g_name in yoto_card_groups.get(cid, []):
@@ -206,7 +206,7 @@ def perform_library_refresh() -> int:
                             b_title = meta.get("title") or b.get("name") or "Book"
                             raw_series = meta.get("seriesName") or meta.get("series") or ""
                             raw_series_order = meta.get("seriesSequence") or meta.get("sequence") or ""
-                            from routes.admin_curation import extract_series_list
+                            from core.media_utils import extract_series_list
                             series_list = extract_series_list(raw_series, raw_series_order, title=b_title, known_series=list(known_series_set))
                             for s in series_list:
                                 if s.get("name"):
@@ -397,9 +397,4 @@ def start_scheduler():
             )
             _scheduler_thread.start()
             logger.info("Library refresh scheduler thread initialized.")
-
-
-def trigger_immediate_refresh() -> int:
-    """Manually triggers an immediate library refresh from API/UI."""
-    return perform_library_refresh()
 

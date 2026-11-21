@@ -93,35 +93,6 @@ def admin_revoke_device(mac_address: str):
     return jsonify({"ok": False, "error": "Device not found."}), 404
 
 
-@admin_discovery_bp.route("/api/admin/devices/<mac_address>/reset-pin", methods=["POST"])
-@require_admin
-def admin_reset_device_pin(mac_address: str):
-    """
-    Pushes an OTA PIN reset to the ESP32 controller.
-    Validates that the provided PIN is exactly 4 numeric digits.
-    Defaults to '1234' if none provided or left empty.
-    """
-    data = request.get_json(silent=True) or {}
-    new_pin = str(data.get("pin") or "1234").strip()
-    if not (len(new_pin) == 4 and new_pin.isdigit()):
-        return jsonify({"ok": False, "error": "Parent PIN must be exactly 4 numeric digits (e.g. 1234)."}), 400
-
-    dev = database.get_esp32_device(mac_address)
-    if not dev:
-        return jsonify({"ok": False, "error": "Device not found."}), 404
-
-    success = database.update_esp32_device(mac_address, {"parent_pin": new_pin})
-    if success:
-        logger.info("OTA Parent PIN reset for device %s to %s", mac_address, new_pin)
-        return jsonify({
-            "ok": True,
-            "mac": mac_address,
-            "parent_pin": new_pin,
-            "message": f"Parent PIN successfully reset to {new_pin}."
-        })
-    return jsonify({"ok": False, "error": "Failed to update device PIN."}), 500
-
-
 
 # ============================================================================
 # Discovery & Household Matching Endpoints
@@ -130,31 +101,7 @@ def admin_reset_device_pin(mac_address: str):
 @admin_discovery_bp.route("/api/admin/discovery/players", methods=["GET"])
 @require_admin
 def admin_discovery_players():
-    """Lists registered Yoto players from Bridge or direct Yoto cloud."""
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
-
-    # If in bridge mode, probe bridge status
-    if mode == "bridge" and creds.get("yoto_bridge_url"):
-        try:
-            b_url = creds["yoto_bridge_url"].rstrip("/")
-            bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
-            res = requests.get(f"{b_url}/api/status", headers=bridge_headers, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                players = []
-                for d in data.get("devices", []):
-                    players.append({
-                        "id": d.get("id"),
-                        "name": d.get("name", "Yoto Player"),
-                        "online": d.get("online", False),
-                        "status": d.get("status", "idle")
-                    })
-                return jsonify(players)
-        except Exception as e:
-            logger.debug("Bridge player query notice: %s", e)
-
-    # Fallback to direct cloud devices
+    """Lists registered Yoto players from direct Yoto cloud."""
     direct_players = clients.yoto_client.get_devices() if clients.yoto_client else []
     players = []
     for d in direct_players:
@@ -172,9 +119,7 @@ def admin_discovery_players():
 @require_admin
 def admin_discovery_abs_users():
     """Fetches list of registered Audiobookshelf users for profile dropdown binding."""
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
-    if mode != "bridge" or not clients.abs_client or not clients.abs_client.base_url:
+    if not clients.abs_client or not clients.abs_client.base_url:
         return jsonify([])
 
     try:
@@ -203,20 +148,8 @@ def admin_discovery_household_match():
     Simultaneously probes Yoto players and ABS users, performing fuzzy string matching
     to suggest automated child profile bindings with 1 click.
     """
-    creds = database.get_api_credentials()
     # 1. Fetch Yoto Players
-    players = []
-    if creds.get("yoto_connection_mode") == "bridge" and creds.get("yoto_bridge_url"):
-        try:
-            b_url = creds["yoto_bridge_url"].rstrip("/")
-            bridge_headers = {"X-Api-Key": creds["yoto_bridge_api_key"]} if creds.get("yoto_bridge_api_key") else {}
-            res = requests.get(f"{b_url}/api/status", headers=bridge_headers, timeout=5)
-            if res.status_code == 200:
-                players = res.json().get("devices", [])
-        except Exception:
-            pass
-    if not players and clients.yoto_client:
-        players = clients.yoto_client.get_devices()
+    players = clients.yoto_client.get_devices() if clients.yoto_client else []
 
     # 2. Fetch ABS Users
     abs_users = []

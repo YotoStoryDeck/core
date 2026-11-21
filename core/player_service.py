@@ -8,27 +8,16 @@ from __future__ import annotations
 import time
 import threading
 import urllib.parse
-import logging
 from typing import Dict, Any, List, Optional, Tuple
-import requests
 
 import database
 import clients
 from core.config import logger
 
-# Persistent session with connection pool
-_http_session = requests.Session()
-_adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1)
-_http_session.mount("http://", _adapter)
-_http_session.mount("https://", _adapter)
-
-# Cached player volume ceilings (device_id -> {"max": int, "cached_at": float})
-_player_vol_cache: Dict[str, Dict[str, Any]] = {}
-
 # In-memory presence cache for local home network verification
 _player_home_presence: Dict[str, Dict[str, Any]] = {}
 
-# Short TTL cache for live players map to prevent rapid polling thrashing (e.g. 2.0s TTL)
+# Short TTL cache for live players map to prevent rapid polling thrashing (2.0s TTL)
 _cached_players_map: Dict[str, Dict[str, Any]] = {}
 _cached_players_ts: float = 0.0
 _CACHE_TTL_SECONDS: float = 2.0
@@ -40,6 +29,8 @@ _cards_cache_ts: float = 0.0
 # Active bedtime sleep timers per player device_id -> {"expires_at": float, "minutes": int, "timer": threading.Timer}
 _player_sleep_timers: Dict[str, Dict[str, Any]] = {}
 _sleep_timer_lock = threading.Lock()
+
+DEFAULT_ABS_COVER = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png"
 
 
 def _on_sleep_timer_expired(device_id: str):
@@ -93,36 +84,19 @@ def get_player_sleep_timer_remaining(device_id: str) -> int:
         return rem
 
 
-def get_cached_cards_inventory(bridge_url: str = "", bridge_headers: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    """Retrieves all registered card slots from local database and external bridge with a 15s cache."""
+def get_cached_cards_inventory() -> List[Dict[str, Any]]:
+    """Retrieves all registered card slots from local SQLite database with a 15s cache."""
     global _cards_cache, _cards_cache_ts
     now = time.time()
     if _cards_cache and (now - _cards_cache_ts < 15.0):
         return _cards_cache
 
     cards: List[Dict[str, Any]] = []
-    # 1. Local database bridge_slots
     try:
         from core.bridge.manager import get_bridge_manager
-        mgr = get_bridge_manager()
-        cards = mgr.list_slots()
+        cards = get_bridge_manager().list_slots()
     except Exception as e:
         logger.debug("Local bridge slots lookup notice: %s", e)
-
-    # 2. External bridge /api/cards if bridge_url configured
-    if bridge_url:
-        try:
-            r = _http_session.get(f"{bridge_url}/api/cards", headers=bridge_headers or {}, timeout=4)
-            if r.status_code == 200:
-                b_cards = r.json()
-                if isinstance(b_cards, list):
-                    local_slots = {s.get("slot_id") or s.get("slot") for s in cards}
-                    for bc in b_cards:
-                        sid = bc.get("slot") or bc.get("slot_id")
-                        if sid and sid not in local_slots:
-                            cards.append(bc)
-        except Exception as e:
-            logger.debug("Bridge /api/cards inventory lookup notice: %s", e)
 
     _cards_cache = cards
     _cards_cache_ts = now
@@ -133,7 +107,6 @@ def verify_player_home_presence(device_id: str, online: bool) -> bool:
     """
     Determines if a Yoto player is on the home network or away/traveling.
     If the player is reported offline by Yoto Cloud, returns is_home=False.
-    If online, checks cached presence or verifies local presence.
     """
     if not online:
         return False
@@ -141,16 +114,51 @@ def verify_player_home_presence(device_id: str, online: bool) -> bool:
     cached = _player_home_presence.get(device_id)
     if cached and (now - cached.get("last_checked", 0) < 60):
         return cached.get("is_home", True)
-    
+
     is_home = True
     _player_home_presence[device_id] = {"is_home": is_home, "last_checked": now}
     return is_home
 
 
+def _match_card_for_playback(cards_inv: List[Dict[str, Any]], active_pb: Any, raw_cid: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Correlates active MQTT or PlaybackManager state with a registered card slot."""
+    for c in cards_inv:
+        if active_pb and (c.get("slot_id") == active_pb.slot_id or c.get("abs_item_id") == active_pb.abs_item_id):
+            return c
+        c_card = c.get("yoto_card_id") or c.get("card_id") or c.get("slot_id")
+        if raw_cid and (c_card == raw_cid or c.get("abs_item_id") == raw_cid):
+            return c
+    return None
+
+
+def _enrich_from_abs(item_id: str, pos: float, dur: float, author: str, now_playing: Optional[str], chapter_title: str) -> Tuple[float, str, Optional[str], str]:
+    """Resolves author, duration, and current chapter title from Audiobookshelf metadata when missing."""
+    try:
+        abs_item = clients.abs_client.get_item(item_id)
+        if abs_item:
+            meta = abs_item.get("media", {}).get("metadata", {})
+            author = meta.get("authorName") or meta.get("author") or author
+            if not author and meta.get("authors"):
+                author = meta["authors"][0].get("name", "")
+            if not now_playing:
+                now_playing = meta.get("title") or now_playing
+            if not chapter_title:
+                ch_list = abs_item.get("media", {}).get("chapters", [])
+                curr = [c for c in ch_list if c.get("start", 0) <= pos < c.get("end", 0)]
+                if curr:
+                    chapter_title = curr[0].get("title", "")
+            if not dur:
+                dur = round(float(abs_item.get("media", {}).get("duration", 0)))
+    except Exception as ce:
+        logger.debug("ABS chapter/author resolution notice for %s: %s", item_id, ce)
+    return dur, author, now_playing, chapter_title
+
+
 def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
     """
     Retrieves the canonical live status and currently played card/media
-    for all household Yoto players. Used identically by Kiosk and Parent Portal.
+    for all household Yoto players using direct Yoto Cloud REST, embedded MQTT
+    telemetry, PlaybackManager sessions, and local SQLite/ABS metadata.
     """
     global _cached_players_map, _cached_players_ts
     now = time.time()
@@ -158,341 +166,166 @@ def get_live_players_map(force_refresh: bool = False) -> Dict[str, Dict[str, Any
         return _cached_players_map
 
     player_map: Dict[str, Dict[str, Any]] = {}
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
-    bridge_url = creds.get("yoto_bridge_url", "").rstrip("/")
-    bridge_headers = {}
-    if creds.get("yoto_bridge_api_key"):
-        bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
-    if creds.get("yoto_ui_pin"):
-        bridge_headers["X-Pin"] = str(creds["yoto_ui_pin"]).strip()
+    try:
+        from core.bridge.mqtt_client import get_mqtt_bridge
+        from core.bridge.playback import get_playback_manager
+        mqtt_states = get_mqtt_bridge().get_device_states()
+        pb_mgr = get_playback_manager()
+        cards_inv = get_cached_cards_inventory()
 
-    # 1. Query Bridge /api/status if configured
-    if mode == "bridge" and bridge_url:
-        try:
-            res = _http_session.get(f"{bridge_url}/api/status", headers=bridge_headers, timeout=4)
-            if res.status_code == 200:
-                for d in res.json().get("devices", []):
-                    did = d.get("id")
-                    if not did:
-                        continue
-                    v_max = d.get("volume_max", 100) or 100
-                    _player_vol_cache[did] = {"max": v_max, "cached_at": now}
+        cloud_devices: List[Dict[str, Any]] = []
+        if clients.yoto_client:
+            try:
+                cloud_devices = clients.yoto_client.get_devices() or []
+            except Exception as de:
+                logger.debug("Direct Yoto device query notice: %s", de)
 
-                    dev_status = (d.get("status") or "idle").lower()
-                    is_playing = (dev_status == "playing")
-                    is_active_media = dev_status in ("playing", "paused") or is_playing
-                    chapter_title = d.get("chapter_title") or ""
-                    author = d.get("author") or ""
-                    cover_url = d.get("cover_url") or ""
-                    item_id = d.get("item_id") if is_active_media else None
-                    now_playing = d.get("now_playing") if is_active_media else None
-                    pos = (d.get("position") or 0) if is_active_media else 0
-                    dur = (d.get("duration") or 0) if is_active_media else 0
+        merged_raw: Dict[str, Dict[str, Any]] = {}
+        for d in cloud_devices:
+            did = d.get("deviceId") or d.get("id")
+            if did:
+                merged_raw[did] = d
+        for did, ev in mqtt_states.items():
+            if did not in merged_raw:
+                merged_raw[did] = {"deviceId": did, "name": "Yoto Player", "online": bool(ev.get("online", True))}
 
-                    # Enrich from SQLite media_items for both Yoto cards and ABS books
-                    if item_id:
-                        db_item = database.get_media_item_by_id(item_id)
-                        if db_item:
-                            if not now_playing or now_playing == "Yoto Card":
-                                now_playing = db_item.get("title") or now_playing
-                            if not author:
-                                author = db_item.get("author") or ""
-                            if not cover_url:
-                                c_db = db_item.get("cover_url") or ""
-                                if c_db:
-                                    if db_item.get("type", "").startswith("yoto") and not c_db.startswith("/api/thumb"):
-                                        cover_url = f"/api/thumb?type=yoto&id={item_id}&url={urllib.parse.quote(c_db)}"
-                                    else:
-                                        cover_url = c_db
+        for did, d in merged_raw.items():
+            mqtt_ev = mqtt_states.get(did) or {}
+            active_pb = pb_mgr.get_active_for_device(did)
 
-                    # Enrich from ABS client if active ABS book
-                    if is_active_media and item_id and clients.abs_client:
-                        db_item = database.get_media_item_by_id(item_id)
-                        if not db_item or db_item.get("type") == "abs":
-                            try:
-                                abs_item = clients.abs_client.get_item(item_id)
-                                if abs_item:
-                                    meta = abs_item.get("media", {}).get("metadata", {})
-                                    author = meta.get("authorName") or meta.get("author") or author
-                                    if not author and meta.get("authors"):
-                                        author = meta["authors"][0].get("name", "")
-                                    if not now_playing:
-                                        now_playing = meta.get("title") or now_playing
-                                    ch_list = abs_item.get("media", {}).get("chapters", [])
-                                    curr = [c for c in ch_list if c.get("start", 0) <= pos < c.get("end", 0)]
-                                    if curr:
-                                        chapter_title = curr[0].get("title", "")
-                                    if not dur:
-                                        dur = round(float(abs_item.get("media", {}).get("duration", 0)))
-                            except Exception as ce:
-                                logger.debug("ABS chapter/author resolution notice for %s: %s", item_id, ce)
+            is_online = bool(mqtt_ev["online"]) if "online" in mqtt_ev else bool(d.get("online"))
+            is_home = verify_player_home_presence(did, is_online)
 
-                    # Fallback cover if none resolved
-                    if not cover_url:
-                        cover_url = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png"
+            v_max = mqtt_ev.get("volume_max") if mqtt_ev.get("volume_max") is not None else (d.get("volume_max", 100) or 100)
 
-                    # Correlate active playback with card inventory & attached playlists
-                    cards_inv = get_cached_cards_inventory(bridge_url, bridge_headers)
-                    matched_card = None
-                    if is_active_media:
-                        for c in cards_inv:
-                            c_item = c.get("item_id") or c.get("abs_item_id")
-                            c_card = c.get("yoto_card_id") or c.get("card_id")
-                            c_title = (c.get("title") or c.get("yoto_title") or "").strip().lower()
-                            if (item_id and (c_item == item_id or c_card == item_id)) or (now_playing and c_title and c_title == now_playing.strip().lower()):
-                                matched_card = c
-                                break
+            if mqtt_ev.get("playbackStatus"):
+                dev_status = str(mqtt_ev["playbackStatus"]).lower()
+            elif active_pb:
+                dev_status = "playing"
+            else:
+                dev_status = "online" if is_online else "offline"
 
-                    card_id = None
-                    slot_id = None
-                    card_title = None
-                    has_attached_card = False
-                    has_attached_playlist = False
-                    playback_mode = "idle"
+            is_playing = (dev_status == "playing")
+            is_active_media = dev_status in ("playing", "paused") or bool(active_pb)
 
-                    if is_active_media:
-                        if matched_card:
-                            card_id = matched_card.get("yoto_card_id") or matched_card.get("card_id") or matched_card.get("slot")
-                            slot_id = matched_card.get("slot") or matched_card.get("slot_id")
-                            card_title = matched_card.get("title") or matched_card.get("yoto_title") or now_playing
-                            has_attached_card = True
-                            has_attached_playlist = bool(card_id or slot_id)
-                            off = matched_card.get("offline") or {}
-                            if off and off.get("status") == "ready":
-                                playback_mode = "offline"
-                            else:
-                                playback_mode = matched_card.get("mode") or "streaming"
-                        else:
-                            # Check if retail Yoto card or raw cardId
-                            db_item = database.get_media_item_by_id(item_id) if item_id else None
-                            if (db_item and db_item.get("type") == "yoto") or (item_id and len(item_id) == 5 and item_id.isalnum()):
-                                card_id = item_id
-                                card_title = now_playing
-                                has_attached_card = True
-                                has_attached_playlist = False
-                                playback_mode = "retail"
-                            else:
-                                has_attached_card = bool(item_id or now_playing)
-                                has_attached_playlist = False
-                                playback_mode = "streaming"
+            raw_cid = mqtt_ev.get("cardId") if is_active_media else None
+            matched_card = _match_card_for_playback(cards_inv, active_pb, raw_cid) if is_active_media else None
 
-                    has_card = bool(is_active_media and (has_attached_card or item_id or now_playing))
-                    is_online = bool(d.get("online"))
-                    is_home = verify_player_home_presence(did, is_online)
-                    vol = d.get("volume") if d.get("volume") is not None else 50
+            item_id = None
+            now_playing = None
+            author = ""
+            chapter_title = mqtt_ev.get("chapterTitle") or mqtt_ev.get("trackTitle") or ""
+            cover_url = ""
+            pos: float = 0
+            dur: float = 0
+            speed = 1.0
+            card_id = None
+            slot_id = None
+            card_title = None
+            has_attached_card = False
+            has_attached_playlist = False
+            playback_mode = "idle"
 
-                    player_map[did] = {
-                        "id": did,
-                        "deviceId": did,
-                        "name": d.get("name") or "Yoto Player",
-                        "online": is_online,
-                        "is_home": is_home,
-                        "location": "home" if is_home else "away",
-                        "status": dev_status,
-                        "is_playing": is_playing,
-                        "has_card": has_card,
-                        "now_playing": now_playing,
-                        "title": now_playing or ("Playing on Yoto" if is_active_media else "No Active Playback"),
-                        "author": author,
-                        "chapter_title": chapter_title,
-                        "chapterTitle": chapter_title,
-                        "cover_url": cover_url,
-                        "coverUrl": cover_url,
-                        "coverImageUrl": cover_url,
-                        "item_id": item_id,
-                        "card_id": card_id,
-                        "slot_id": slot_id,
-                        "card_title": card_title or now_playing,
-                        "has_attached_card": has_attached_card,
-                        "has_attached_playlist": has_attached_playlist,
-                        "playback_mode": playback_mode,
-                        "position": pos,
-                        "duration": dur,
-                        "speed": float(d.get("speed") or 1.0),
-                        "playing_speed": d.get("playing_speed"),
-                        "volume": vol,
-                        "volume_max": v_max,
-                        "day_mode": d.get("day_mode"),
-                        "battery": d.get("battery") if d.get("battery") is not None else d.get("battery_level_percentage"),
-                        "charging": d.get("charging"),
-                        "sleep_timer_remaining": get_player_sleep_timer_remaining(did),
-                        "playback": {
-                            "state": dev_status if is_active_media else "stopped",
-                            "position": pos,
-                            "duration": dur
-                        }
-                    }
-        except Exception as e:
-            logger.debug("Bridge player status query notice: %s", e)
+            if active_pb:
+                item_id = active_pb.abs_item_id
+                now_playing = active_pb.title
+                pos = round(pb_mgr.compute_position(active_pb))
+                dur = round(active_pb.book_duration or 0)
+                speed = active_pb.speed
+                slot_id = active_pb.slot_id
+                card_id = active_pb.yoto_card_id or raw_cid
+            elif is_active_media:
+                item_id = (matched_card.get("abs_item_id") or matched_card.get("item_id")) if matched_card else raw_cid
+                pos = float(mqtt_ev.get("position") or 0)
+                dur = float(mqtt_ev.get("trackLength") or 0)
+                speed = float((matched_card or {}).get("speed") or 1.0)
 
-    # 2. Standalone / Direct Yoto Mode Fallback (Cloud REST + Embedded MQTT + Active Stream Sessions)
-    if not player_map:
-        try:
-            from core.bridge.mqtt_client import get_mqtt_bridge
-            from core.bridge.playback import get_playback_manager
-            mqtt_states = get_mqtt_bridge().get_device_states()
-            pb_mgr = get_playback_manager()
-            cards_inv = get_cached_cards_inventory()
+            db_item = database.get_media_item_by_id(item_id) if item_id else None
+            if db_item:
+                now_playing = now_playing or db_item.get("title")
+                author = db_item.get("author") or ""
+                c_db = db_item.get("cover_url") or ""
+                if c_db:
+                    if db_item.get("type", "").startswith("yoto") and not c_db.startswith("/api/thumb"):
+                        cover_url = f"/api/thumb?type=yoto&id={item_id}&url={urllib.parse.quote(c_db)}"
+                    else:
+                        cover_url = c_db
 
-            cloud_devices: List[Dict[str, Any]] = []
-            if clients.yoto_client:
-                try:
-                    cloud_devices = clients.yoto_client.get_devices() or []
-                except Exception as de:
-                    logger.debug("Direct Yoto device query notice: %s", de)
+            if is_active_media and item_id and clients.abs_client and (not db_item or db_item.get("type") == "abs"):
+                if not chapter_title or not author or not dur:
+                    dur, author, now_playing, chapter_title = _enrich_from_abs(
+                        item_id, pos, dur, author, now_playing, chapter_title
+                    )
 
-            merged_raw: Dict[str, Dict[str, Any]] = {}
-            for d in cloud_devices:
-                did = d.get("deviceId") or d.get("id")
-                if did:
-                    merged_raw[did] = d
-            for did, ev in mqtt_states.items():
-                if did not in merged_raw:
-                    merged_raw[did] = {"deviceId": did, "name": "Yoto Player", "online": bool(ev.get("online", True))}
-
-            for did, d in merged_raw.items():
-                mqtt_ev = mqtt_states.get(did) or {}
-                active_pb = pb_mgr.get_active_for_device(did)
-
-                is_online = bool(mqtt_ev["online"]) if "online" in mqtt_ev else bool(d.get("online"))
-                is_home = verify_player_home_presence(did, is_online)
-
-                v_max = mqtt_ev.get("volume_max") if mqtt_ev.get("volume_max") is not None else (d.get("volume_max", 100) or 100)
-                _player_vol_cache[did] = {"max": v_max, "cached_at": now}
-
-                if mqtt_ev.get("playbackStatus"):
-                    dev_status = str(mqtt_ev["playbackStatus"]).lower()
+            if is_active_media:
+                if matched_card:
+                    card_id = card_id or matched_card.get("yoto_card_id") or matched_card.get("card_id") or matched_card.get("slot_id")
+                    slot_id = slot_id or matched_card.get("slot_id") or matched_card.get("slot")
+                    card_title = matched_card.get("title") or now_playing
+                    has_attached_card = True
+                    has_attached_playlist = bool(card_id or slot_id)
+                    playback_mode = matched_card.get("mode") or "streaming"
                 elif active_pb:
-                    dev_status = "playing"
-                else:
-                    dev_status = "online" if is_online else "offline"
+                    has_attached_card = True
+                    has_attached_playlist = True
+                    playback_mode = "streaming"
+                elif raw_cid:
+                    card_id = raw_cid
+                    card_title = now_playing
+                    has_attached_card = True
+                    has_attached_playlist = False
+                    playback_mode = "retail" if (len(raw_cid) == 5 and raw_cid.isalnum()) else "streaming"
 
-                is_playing = (dev_status == "playing")
-                is_active_media = dev_status in ("playing", "paused") or bool(active_pb)
+            if not cover_url:
+                cover_url = DEFAULT_ABS_COVER
 
-                raw_cid = mqtt_ev.get("cardId") if is_active_media else None
-                matched_card = None
-                if is_active_media:
-                    for c in cards_inv:
-                        if active_pb and (c.get("slot_id") == active_pb.slot_id or c.get("abs_item_id") == active_pb.abs_item_id):
-                            matched_card = c
-                            break
-                        c_card = c.get("yoto_card_id") or c.get("card_id") or c.get("slot_id")
-                        if raw_cid and (c_card == raw_cid or c.get("abs_item_id") == raw_cid):
-                            matched_card = c
-                            break
+            vol = mqtt_ev.get("volume")
+            if vol is None:
+                vol = d.get("volume", 50) if d.get("volume") is not None else 50
 
-                item_id = None
-                now_playing = None
-                author = ""
-                chapter_title = mqtt_ev.get("chapterTitle") or mqtt_ev.get("trackTitle") or ""
-                cover_url = ""
-                pos: float = 0
-                dur: float = 0
-                speed = 1.0
-                card_id = None
-                slot_id = None
-                card_title = None
-                has_attached_card = False
-                has_attached_playlist = False
-                playback_mode = "idle"
-
-                if active_pb:
-                    item_id = active_pb.abs_item_id
-                    now_playing = active_pb.title
-                    pos = round(pb_mgr.compute_position(active_pb))
-                    dur = round(active_pb.book_duration or 0)
-                    speed = active_pb.speed
-                    slot_id = active_pb.slot_id
-                    card_id = active_pb.yoto_card_id or raw_cid
-                elif is_active_media:
-                    item_id = (matched_card.get("abs_item_id") or matched_card.get("item_id")) if matched_card else raw_cid
-                    pos = float(mqtt_ev.get("position") or 0)
-                    dur = float(mqtt_ev.get("trackLength") or 0)
-                    speed = float((matched_card or {}).get("speed") or 1.0)
-
-                if item_id:
-                    db_item = database.get_media_item_by_id(item_id)
-                    if db_item:
-                        now_playing = now_playing or db_item.get("title")
-                        author = db_item.get("author") or ""
-                        c_db = db_item.get("cover_url") or ""
-                        if c_db:
-                            if db_item.get("type", "").startswith("yoto") and not c_db.startswith("/api/thumb"):
-                                cover_url = f"/api/thumb?type=yoto&id={item_id}&url={urllib.parse.quote(c_db)}"
-                            else:
-                                cover_url = c_db
-
-                if is_active_media:
-                    if matched_card:
-                        card_id = card_id or matched_card.get("yoto_card_id") or matched_card.get("card_id") or matched_card.get("slot_id")
-                        slot_id = slot_id or matched_card.get("slot_id") or matched_card.get("slot")
-                        card_title = matched_card.get("title") or now_playing
-                        has_attached_card = True
-                        has_attached_playlist = bool(card_id or slot_id)
-                        playback_mode = matched_card.get("mode") or "streaming"
-                    elif active_pb:
-                        has_attached_card = True
-                        has_attached_playlist = True
-                        playback_mode = "streaming"
-                    elif raw_cid:
-                        card_id = raw_cid
-                        card_title = now_playing
-                        has_attached_card = True
-                        has_attached_playlist = False
-                        playback_mode = "retail" if (len(raw_cid) == 5 and raw_cid.isalnum()) else "streaming"
-
-                if not cover_url:
-                    cover_url = "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png"
-
-                vol = mqtt_ev.get("volume")
-                if vol is None:
-                    vol = d.get("volume", 50) if d.get("volume") is not None else 50
-
-                player_map[did] = {
-                    "id": did,
-                    "deviceId": did,
-                    "name": d.get("name") or "Yoto Player",
-                    "online": is_online,
-                    "is_home": is_home,
-                    "location": "home" if is_home else "away",
-                    "status": dev_status,
-                    "is_playing": is_playing,
-                    "has_card": bool(is_active_media and (has_attached_card or item_id or now_playing)),
-                    "now_playing": now_playing,
-                    "title": now_playing or ("Playing on Yoto" if is_active_media else "No Active Playback"),
-                    "author": author,
-                    "chapter_title": chapter_title,
-                    "chapterTitle": chapter_title,
-                    "cover_url": cover_url,
-                    "coverUrl": cover_url,
-                    "coverImageUrl": cover_url,
-                    "item_id": item_id,
-                    "card_id": card_id,
-                    "slot_id": slot_id,
-                    "card_title": card_title or now_playing,
-                    "has_attached_card": has_attached_card,
-                    "has_attached_playlist": has_attached_playlist,
-                    "playback_mode": playback_mode,
+            player_map[did] = {
+                "id": did,
+                "deviceId": did,
+                "name": d.get("name") or "Yoto Player",
+                "online": is_online,
+                "is_home": is_home,
+                "location": "home" if is_home else "away",
+                "status": dev_status,
+                "is_playing": is_playing,
+                "has_card": bool(is_active_media and (has_attached_card or item_id or now_playing)),
+                "now_playing": now_playing,
+                "title": now_playing or ("Playing on Yoto" if is_active_media else "No Active Playback"),
+                "author": author,
+                "chapter_title": chapter_title,
+                "chapterTitle": chapter_title,
+                "cover_url": cover_url,
+                "coverUrl": cover_url,
+                "coverImageUrl": cover_url,
+                "item_id": item_id,
+                "card_id": card_id,
+                "slot_id": slot_id,
+                "card_title": card_title or now_playing,
+                "has_attached_card": has_attached_card,
+                "has_attached_playlist": has_attached_playlist,
+                "playback_mode": playback_mode,
+                "position": pos,
+                "duration": dur,
+                "speed": float(speed or 1.0),
+                "playing_speed": speed,
+                "volume": vol,
+                "volume_max": v_max,
+                "day_mode": mqtt_ev.get("day_mode"),
+                "battery": mqtt_ev.get("battery_level_percentage"),
+                "charging": mqtt_ev.get("charging"),
+                "sleep_timer_remaining": get_player_sleep_timer_remaining(did),
+                "playback": {
+                    "state": dev_status if is_active_media else "stopped",
                     "position": pos,
-                    "duration": dur,
-                    "speed": float(speed or 1.0),
-                    "playing_speed": speed,
-                    "volume": vol,
-                    "volume_max": v_max,
-                    "day_mode": mqtt_ev.get("day_mode"),
-                    "battery": mqtt_ev.get("battery_level_percentage"),
-                    "charging": mqtt_ev.get("charging"),
-                    "sleep_timer_remaining": get_player_sleep_timer_remaining(did),
-                    "playback": {
-                        "state": dev_status if is_active_media else "stopped",
-                        "position": pos,
-                        "duration": dur
-                    }
+                    "duration": dur
                 }
-        except Exception as e:
-            logger.debug("Direct Yoto / MQTT device query notice: %s", e)
+            }
+    except Exception as e:
+        logger.debug("Direct Yoto / MQTT device query notice: %s", e)
 
     _cached_players_map = player_map
     _cached_players_ts = now
@@ -517,9 +350,9 @@ def get_player_status(device_id: str) -> Dict[str, Any]:
         "author": "",
         "chapter_title": "",
         "chapterTitle": "",
-        "cover_url": "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png",
-        "coverUrl": "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png",
-        "coverImageUrl": "https://raw.githubusercontent.com/advplyr/audiobookshelf/master/client/static/Logo.png",
+        "cover_url": DEFAULT_ABS_COVER,
+        "coverUrl": DEFAULT_ABS_COVER,
+        "coverImageUrl": DEFAULT_ABS_COVER,
         "item_id": None,
         "card_id": None,
         "slot_id": None,
@@ -546,15 +379,6 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
     Centralized dispatch for player transport, volume, speed, seek, and sleep timer
     controls across both Kiosk and Parent Portal.
     """
-    creds = database.get_api_credentials()
-    mode = creds.get("yoto_connection_mode", "bridge")
-    active_bridge_url = creds.get("yoto_bridge_url", "").rstrip("/")
-    bridge_headers = {}
-    if creds.get("yoto_bridge_api_key"):
-        bridge_headers["X-Api-Key"] = creds["yoto_bridge_api_key"]
-    if creds.get("yoto_ui_pin"):
-        bridge_headers["X-Pin"] = str(creds["yoto_ui_pin"]).strip()
-
     try:
         from core.bridge.mqtt_client import get_mqtt_bridge
         mqtt = get_mqtt_bridge()
@@ -564,68 +388,33 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
             if volume is None:
                 return False, {"ok": False, "error": "volume is required"}, 400
             vol_val = max(0, min(100, int(volume)))
-            # Parent volume ceiling check & clamp
             player_st = get_player_status(device_id)
             max_limit = player_st.get("volume_max", 100) or 100
             if vol_val > max_limit:
                 vol_val = max_limit
 
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    r = _http_session.post(f"{active_bridge_url}/api/device/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=3)
-                    if r.status_code == 404:
-                        r = _http_session.post(f"{active_bridge_url}/api/yoto/volume", json={"device_id": device_id, "volume": vol_val}, headers=bridge_headers, timeout=3)
-                    if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "volume": vol_val, "volume_max": max_limit}, 200
-                except Exception as be:
-                    logger.warning("Bridge volume relay error: %s", be)
-
             if mqtt.is_connected and mqtt.set_volume(device_id, vol_val):
                 return True, {"ok": True, "device_id": device_id, "volume": vol_val, "volume_max": max_limit}, 200
 
             if clients.yoto_client:
-                ok = clients.yoto_client.set_volume(device_id, vol_val)
-                if ok:
+                if clients.yoto_client.set_volume(device_id, vol_val):
                     return True, {"ok": True, "device_id": device_id, "volume": vol_val, "volume_max": max_limit}, 200
                 return False, {"ok": False, "error": "Yoto Cloud volume command failed"}, 502
 
         # 2. Transport: pause, resume, stop
         elif action in ("pause", "resume", "stop"):
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    r = _http_session.post(f"{active_bridge_url}/api/control", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=3)
-                    if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "action": action}, 200
-                except Exception as be:
-                    logger.warning("Bridge transport relay error: %s", be)
-
             if mqtt.is_connected:
-                mqtt_ok = False
-                if action == "pause":
-                    mqtt_ok = mqtt.pause(device_id)
-                elif action == "resume":
-                    mqtt_ok = mqtt.resume(device_id)
-                elif action == "stop":
-                    mqtt_ok = mqtt.stop_playback(device_id)
-                if mqtt_ok:
+                mqtt_fn = {"pause": mqtt.pause, "resume": mqtt.resume, "stop": mqtt.stop_playback}[action]
+                if mqtt_fn(device_id):
                     return True, {"ok": True, "device_id": device_id, "action": action}, 200
 
             if clients.yoto_client:
-                ok = clients.yoto_client.send_transport_command(device_id, action)
-                if ok:
+                if clients.yoto_client.send_transport_command(device_id, action):
                     return True, {"ok": True, "device_id": device_id, "action": action}, 200
                 return False, {"ok": False, "error": f"Yoto Cloud '{action}' transport command failed"}, 502
 
         # 3. Chapter Track Skip & 30s Jump: prev, next, back30, fwd30
         elif action in ("prev", "next", "back30", "fwd30"):
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    r = _http_session.post(f"{active_bridge_url}/api/seek", json={"device_id": device_id, "action": action}, headers=bridge_headers, timeout=3)
-                    if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "action": action}, 200
-                except Exception as be:
-                    logger.warning("Bridge seek relay error: %s", be)
-
             if mqtt.is_connected:
                 st = get_player_status(device_id)
                 cid = st.get("card_id") or st.get("item_id")
@@ -645,34 +434,11 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
                         if mqtt.play(device_id, cid, track=target_trk):
                             return True, {"ok": True, "device_id": device_id, "action": action, "track": target_trk}, 200
 
-            return False, {"ok": False, "error": f"Seek '{action}' not supported in current mode"}, 400
+            return False, {"ok": False, "error": f"Seek '{action}' requires active MQTT playback"}, 400
 
         # 4. Interactive Scrub Bar Seek (position in seconds)
         elif action == "seek":
             target_sec = max(0, int(round(float(position or 0))))
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    r = _http_session.post(
-                        f"{active_bridge_url}/api/seek",
-                        json={"device_id": device_id, "action": "seek", "position": target_sec, "seconds": target_sec},
-                        headers=bridge_headers,
-                        timeout=3
-                    )
-                    if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "action": "seek", "position": target_sec}, 200
-                    # Fallback: if bridge /api/seek only handles discrete jumps, trigger /api/play with seconds_in
-                    st = get_player_status(device_id)
-                    play_payload: Dict[str, Any] = {"device_id": device_id, "seconds_in": target_sec}
-                    if st.get("item_id") and st.get("playback_mode") != "retail":
-                        play_payload["item_id"] = st["item_id"]
-                    elif st.get("card_id"):
-                        play_payload["card_id"] = st["card_id"]
-                    if "item_id" in play_payload or "card_id" in play_payload:
-                        r2 = _http_session.post(f"{active_bridge_url}/api/play", json=play_payload, headers=bridge_headers, timeout=4)
-                        if r2.status_code in (200, 204):
-                            return True, {"ok": True, "device_id": device_id, "action": "seek", "position": target_sec}, 200
-                except Exception as be:
-                    logger.warning("Bridge scrub seek relay error: %s", be)
             if mqtt.is_connected:
                 st = get_player_status(device_id)
                 cid = st.get("card_id") or st.get("item_id")
@@ -683,18 +449,6 @@ def dispatch_player_control(device_id: str, action: str, volume: Optional[int] =
         # 5. Playback Speed Control
         elif action == "speed":
             spd_val = max(0.5, min(2.0, float(speed or 1.0)))
-            if mode == "bridge" and active_bridge_url:
-                try:
-                    r = _http_session.post(
-                        f"{active_bridge_url}/api/speed",
-                        json={"device_id": device_id, "speed": spd_val},
-                        headers=bridge_headers,
-                        timeout=3
-                    )
-                    if r.status_code == 200:
-                        return True, {"ok": True, "device_id": device_id, "action": "speed", "speed": spd_val}, 200
-                except Exception as be:
-                    logger.warning("Bridge speed relay error: %s", be)
             st = get_player_status(device_id)
             if st.get("slot_id"):
                 try:

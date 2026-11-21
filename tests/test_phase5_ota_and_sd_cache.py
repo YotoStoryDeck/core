@@ -386,7 +386,7 @@ class TestPhase5OtaAndSdCache(unittest.TestCase):
             'id="firmwareReleasesTable"',
             'openUploadFirmwareModal()',
             'pushFirmwareUpdateAll()',
-            '/static/js/admin/firmware.js?v=20261120_02',
+            '/static/js/admin/firmware.js?v=',
         ):
             self.assertIn(token, html, f"Expected {token} in /admin HTML")
 

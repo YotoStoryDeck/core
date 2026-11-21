@@ -75,17 +75,6 @@ def serve_kiosk_file(filename):
     from flask import send_from_directory
     return send_from_directory(str(kiosk_dir), filename)
 
-@app.route("/simulator")
-@app.route("/simulator/")
-@app.route("/simulator/<path:filename>")
-def redirect_simulator(filename=""):
-    from flask import redirect, request
-    qs = request.query_string.decode("utf-8")
-    target = f"/kiosk/{filename}" if filename else "/kiosk/"
-    if qs:
-        target += f"?{qs}"
-    return redirect(target, code=301)
-
 
 
 

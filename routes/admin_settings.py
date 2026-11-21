@@ -213,69 +213,6 @@ def admin_test_yoto():
     return jsonify({"ok": False, "error": "OAuth refresh failed. Check your Client ID and Refresh Token."}), 502
 
 
-@admin_settings_bp.route("/api/admin/test/bridge", methods=["POST"])
-@require_admin
-def admin_test_bridge():
-    """Live connectivity and health check against the local Yoto ↔ Audiobookshelf Streaming Bridge."""
-    creds = database.get_api_credentials()
-    bridge_url = creds.get("yoto_bridge_url", "").rstrip("/")
-    bridge_api_key = creds.get("yoto_bridge_api_key", "").strip()
-    if not bridge_url:
-        return jsonify({"ok": False, "error": "Yoto-ABS Bridge URL is not configured."}), 400
-
-    headers = {}
-    if bridge_api_key:
-        headers["X-Api-Key"] = bridge_api_key
-
-    try:
-        t0 = time.time()
-        # 1. Probe protected endpoint to verify API key status
-        auth_res = requests.get(f"{bridge_url}/api/yoto/playlists", headers=headers, timeout=5)
-        latency = int((time.time() - t0) * 1000)
-
-        if auth_res.status_code == 401:
-            if not bridge_api_key:
-                return jsonify({
-                    "ok": False,
-                    "error": "Bridge requires authentication, but no Master API Key is configured in the Broker (HTTP 401 Unauthorized)."
-                }), 401
-            return jsonify({
-                "ok": False,
-                "error": "Bridge rejected the provided Master API Key (HTTP 401 Unauthorized). Please check your key."
-            }), 401
-
-        # 2. Probe status endpoint for telemetry
-        res = requests.get(f"{bridge_url}/api/status", headers=headers, timeout=5)
-        auth_note = " • API Key Verified" if bridge_api_key else ""
-
-
-        if res.status_code == 200:
-            try:
-                data = res.json()
-                yoto_login = "Logged in" if data.get("yoto_logged_in") else "Not logged in"
-                devices_count = len(data.get("devices", []))
-                return jsonify({
-                    "ok": True,
-                    "message": f"Bridge Connected ({latency}ms)! Status: {yoto_login}, {devices_count} active players detected{auth_note}."
-                })
-            except Exception:
-                return jsonify({"ok": True, "message": f"Bridge reachable at {bridge_url} ({latency}ms){auth_note}."})
-        
-        # Check /s/health fallback
-        res2 = requests.get(f"{bridge_url}/s/health", timeout=5)
-        if res2.status_code == 200:
-            return jsonify({"ok": True, "message": f"Bridge online and responding to health probe ({latency}ms){auth_note}."})
-
-        return jsonify({"ok": False, "error": f"Bridge returned HTTP {res.status_code} at {probe_url}."}), 502
-
-    except requests.exceptions.ConnectionError:
-        return jsonify({"ok": False, "error": f"Connection refused to bridge at {bridge_url}. Is the container running?"}), 502
-    except requests.exceptions.Timeout:
-        return jsonify({"ok": False, "error": f"Timed out connecting to bridge at {bridge_url}."}), 504
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Bridge test error: {str(e)}"}), 500
-
-
 @admin_settings_bp.route("/api/admin/test/tinker", methods=["POST"])
 @require_admin
 def admin_test_tinker():

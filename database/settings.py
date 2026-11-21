@@ -32,8 +32,7 @@ def get_system_settings() -> Dict[str, Any]:
             "lan_sitter_access_enabled": True,
             "ai_chapter_art": {
                 "enabled": False,
-                "provider": "openrouter",
-                "fallback_to_bridge": True
+                "provider": "openrouter"
             }
         }
         for k, v in defaults.items():
@@ -74,9 +73,7 @@ def get_api_credentials() -> Dict[str, str]:
         cur = conn.cursor()
         keys = [
             "abs_base_url", "abs_api_key",
-            "yoto_connection_mode",
-            "yoto_client_id", "yoto_client_secret", "yoto_refresh_token",
-            "yoto_bridge_url", "yoto_bridge_api_key", "yoto_ui_pin",
+            "yoto_client_id", "yoto_refresh_token",
             "tinker_api_key",
             "gemini_api_key", "anthropic_api_key", "openrouter_api_key"
         ]
@@ -107,20 +104,11 @@ def get_api_credentials() -> Dict[str, str]:
             if legacy_val:
                 return str(legacy_val).strip()
             return default_val
-        # Infer mode if unset: bridge if bridge url present or yoto keys empty
-        raw_mode = db_creds.get("yoto_connection_mode")
-        if not raw_mode:
-            raw_mode = os.getenv("YOTO_CONNECTION_MODE", "bridge")
         return {
             "abs_base_url": resolve_val("abs_base_url", "ABS_BASE_URL", "http://audiobookshelf:80"),
             "abs_api_key": resolve_val("abs_api_key", "ABS_API_KEY", ""),
-            "yoto_connection_mode": str(raw_mode).strip(),
             "yoto_client_id": resolve_val("yoto_client_id", "YOTO_CLIENT_ID", ""),
-            "yoto_client_secret": resolve_val("yoto_client_secret", "YOTO_CLIENT_SECRET", ""),
             "yoto_refresh_token": resolve_val("yoto_refresh_token", "YOTO_REFRESH_TOKEN", ""),
-            "yoto_bridge_url": resolve_val("yoto_bridge_url", "YOTO_BRIDGE_URL", ""),
-            "yoto_bridge_api_key": resolve_val("yoto_bridge_api_key", "YOTO_BRIDGE_API_KEY", ""),
-            "yoto_ui_pin": resolve_val("yoto_ui_pin", "YOTO_UI_PIN", ""),
             "tinker_api_key": resolve_val("tinker_api_key", "TINKER_API_KEY", ""),
             "gemini_api_key": resolve_val("gemini_api_key", "GEMINI_API_KEY", ""),
             "anthropic_api_key": resolve_val("anthropic_api_key", "ANTHROPIC_API_KEY", ""),
@@ -132,9 +120,7 @@ def update_api_credentials(creds: Dict[str, str]) -> bool:
     """Updates API credentials in SQLite system_settings."""
     allowed = {
         "abs_base_url", "abs_api_key",
-        "yoto_connection_mode",
-        "yoto_client_id", "yoto_client_secret", "yoto_refresh_token",
-        "yoto_bridge_url", "yoto_bridge_api_key", "yoto_ui_pin",
+        "yoto_client_id", "yoto_refresh_token",
         "tinker_api_key",
         "gemini_api_key", "anthropic_api_key", "openrouter_api_key"
     }
