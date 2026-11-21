@@ -33,12 +33,9 @@ flowchart LR
 
 ## 🚀 Key Features
 
-* **Parent Portal (`/`) & Mirrored Admin Console (`/admin`):** Shared collapsible left sidebar navigation with direct cross-portal links, consolidated `Core vX.Y.Z` status/version indicator, and real-time `/health` offline awareness banner (`#coreOfflineBanner`).
-* **Bedside Player Controls & Profile Avatar Carousel:** Quick-switch child **Profile Avatar Carousel** paired directly with the **Target Yoto Player** selector, full `0–100%` volume slider displaying the Yoto App day/night ceiling cap (translated from Yoto's native `0–16` hardware scale), scrub seek, `±30s`, speed, sleep timers, Continue Listening, scoped Library browser, Primary & Fleet Card switcher (`Streaming` ↔ `Offline`), and Yoto Cloud playlist manager.
-* **Dedicated Users & Access Management (Schema v13, SSO-Ready):** Standalone Admin `Users & Access` page supporting Primary Super Admin protection (`is_super_admin` on the initial setup account; protected with `403` against edits/deletes by other admins), full user profile editing, LAN/Sitter guest access policies, and 3-step ForwardAuth / OIDC-ready SSO identity resolution (Authentik, Authelia, etc.):
-  1. Match by immutable `(sso_provider, sso_subject)` (`X-authentik-uid`, `X-Forwarded-Sub`, `Remote-Sub`).
-  2. Initial match for unbound local accounts (`sso_subject == ''`) by `email` then `username`, atomically binding the immutable subject ID.
-  3. Optional auto-provisioning of unmatched SSO users as `member` (with anti-hijack protection preventing re-binding of already-bound accounts).
+* **Parent Portal (`/`) & Mirrored Admin Console (`/admin`):** Shared collapsible left sidebar navigation with direct links between the Parent Portal and Admin Console, a live Core status & version indicator, and automatic offline alerts if Core becomes unreachable.
+* **Bedside Player Controls & Profile Avatar Carousel:** Quick-switch child **Profile Avatar Carousel** paired directly with the **Target Yoto Player** selector, full `0–100%` volume slider showing the Yoto App day/night volume limit, scrub seek, `±30s`, speed, sleep timers, Continue Listening, scoped Library browser, Primary & Fleet Card switcher (`Streaming` ↔ `Offline`), and Yoto Cloud playlist manager.
+* **Dedicated Users & Access Management (SSO-Ready):** Standalone Admin **Users & Access** page featuring Primary Super Admin protection for the initial setup account, full user profile management, optional Trusted LAN / Sitter access, and Single Sign-On (Authentik, Authelia, and other reverse-proxy / OIDC identity providers) with automatic email/username matching and optional auto-provisioning.
 * **Consolidated Streaming & Native MQTT Engine:** Embedded `ffmpeg` 64kbps mono HTTP `206` MP3 streamer, silence-snapped chapter cuts (`QuietSpots`), offline Yoto Cloud playlist uploads with warm SHA reuse & series-aware LRU pruning, native `YotoMqttBridge` telemetry, and bi-directional Audiobookshelf progress sync (`PlaybackManager`).
 * **Microcontroller-Optimized APIs & Integrated Tablet Kiosk:** Tailored endpoints serving compact JSON payloads, 100×100 JPEG thumbnails for ESP32-S3 Touch displays, and a zero-dependency web companion at `/kiosk/`.
 * **Multi-Child Profiles & Curation Matrix:** Separate libraries, ABS user scoping, daily discovery limits, physical card ownership tracking (`has_physical`), atomic whole-series rotation, and manual **Yoto Card Series & Sequence Overrides**.
@@ -48,22 +45,6 @@ flowchart LR
 ### 🔮 Planned / Future Features
 * **Home Assistant MQTT Integration:** Automatic entity discovery for bedtime screen locks, now-playing sensors, and automation switches.
 * **Multi-Interval Bedtime & OK-to-Wake Schedules:** Core-synced weekday/weekend schedule overrides for bedside controllers.
-
----
-
-## 🛠️ Technical Maintenance Notes & Stubborn Facts
-
-> STUBBORN_FACT: `core/bridge/mqtt_client.py` forces `asyncio.SelectorEventLoop()` on `win32` — Windows' default `ProactorEventLoop` raises `NotImplementedError` on `add_reader`/`add_writer` required by `aiomqtt`.
-
-> STUBBORN_FACT: Yoto hardware MQTT and API telemetry report volume on an integer `0–16` scale — Core converts this to `0–100%` for the UI while rendering the full `0–100%` bar with a visual cap marker matching the Yoto App day/night ceiling.
-
-> STUBBORN_FACT: The Parent Portal fetches child profiles from `/api/profiles` rather than `/api/admin/profiles` — `/api/admin/profiles` is `@require_admin`-gated, whereas `/api/profiles` allows LAN guests and `member` accounts to render the avatar carousel without admin cookies.
-
-> STUBBORN_FACT: Every `<input type="password">` in `/admin` must remain enclosed inside a `<form>` element — enforced by browser password-manager compatibility and verified by the unit test suite.
-
-> STUBBORN_FACT: SSO resolution binds permanently to `(sso_provider, sso_subject)` and only falls back to `email`/`username` matching when `sso_subject == ''` — this prevents account hijacking if an upstream IdP recycles a username or a user changes their email address.
-
-> STUBBORN_FACT: The Primary Super Admin (`is_super_admin = 1`, the first admin account created via setup) cannot be edited, demoted, or deleted by other admins (`403`) or removed at the DAO layer — guarantees the instance can never be locked out by a secondary admin.
 
 ---
 
