@@ -293,14 +293,14 @@
             </div>
           </form>
 
-          <!-- In-Browser OAuth Callback Manual Fallback Helper -->
+          <!-- In-Browser OAuth Callback Fallback Helper -->
           <div id="yotoOAuthManualHelper" style="display: none; margin-top: 12px; margin-bottom: 16px; background: rgba(229, 53, 43, 0.08); padding: 12px; border-radius: 6px; border: 1px dashed var(--accent-yoto);">
-            <strong style="display: block; font-size: 13px; color: var(--accent-yoto); margin-bottom: 4px;">Complete Yoto Login:</strong>
-            <p class="text-secondary" style="font-size: 12px; margin-bottom: 8px;">
-              If the login popup did not automatically close, copy and paste the entire callback URL or authorization code below:
+            <strong id="yotoOAuthHelperTitle" style="display: block; font-size: 13px; color: var(--accent-yoto); margin-bottom: 4px;">Complete Yoto Login:</strong>
+            <p id="yotoOAuthHelperDesc" class="text-secondary" style="font-size: 12px; margin-bottom: 8px;">
+              If the login popup did not complete automatically, copy and paste the entire callback URL or authorization code below:
             </p>
             <div style="display: flex; gap: 8px;">
-              <input type="text" id="yotoPastedUrl" class="form-control" placeholder="https://.../s/yoto-callback?code=... or raw code">
+              <input type="text" id="yotoPastedUrl" class="form-control" placeholder="https://.../s/yoto-callback?code=... or http://127.0.0.1:8787/callback?code=...">
               <button type="button" class="btn btn-primary" style="white-space: nowrap; font-size: 12px;" onclick="finishInBrowserYotoOAuth()">Complete Login</button>
             </div>
           </div>
@@ -311,7 +311,7 @@
             <ul style="padding-left: 18px; margin: 0;">
               <li>Register a free developer app at <a href="https://dashboard.yoto.dev" target="_blank" style="color: #38bdf8;">dashboard.yoto.dev</a>.</li>
               <li><strong>Required Scopes:</strong> <code>family:library:view user:content:manage family:devices:view family:devices:control offline_access</code></li>
-              <li><strong>Allowed Callback URLs:</strong> Add your host callback e.g. <code>https://&lt;your-domain&gt;/s/yoto-callback</code> or <code>http://127.0.0.1:8787/callback</code>.</li>
+              <li><strong>Allowed Callback URLs:</strong> Add <code>https://&lt;your-domain&gt;/s/yoto-callback</code>, <code>http://127.0.0.1:5055/s/yoto-callback</code>, or <code>http://127.0.0.1:8787/callback</code>.</li>
             </ul>
           </div>
 
