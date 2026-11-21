@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -15,6 +16,13 @@ from typing import Any, Callable, Dict, List, Optional
 import clients
 
 logger = logging.getLogger("storydeck.bridge.mqtt")
+
+
+def _create_event_loop() -> asyncio.AbstractEventLoop:
+    """Creates an asyncio event loop supporting add_reader/add_writer (SelectorEventLoop on Windows)."""
+    if sys.platform == "win32":
+        return asyncio.SelectorEventLoop()
+    return asyncio.new_event_loop()
 
 
 class YotoMqttBridge:
@@ -204,7 +212,7 @@ class YotoMqttBridge:
                 logger.debug("MQTT disconnect notice: %s", e)
 
     def _run_loop(self):
-        loop = asyncio.new_event_loop()
+        loop = _create_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
         try:

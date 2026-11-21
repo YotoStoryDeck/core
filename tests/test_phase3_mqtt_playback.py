@@ -350,6 +350,18 @@ class TestPhase3MqttPlayback(unittest.TestCase):
         self.assertIn("active_sessions", data)
         self.assertIsInstance(data["active_sessions"], list)
 
+    def test_windows_selector_event_loop(self):
+        """_create_event_loop returns SelectorEventLoop on win32 for aiomqtt add_reader/add_writer support."""
+        import asyncio
+        from core.bridge.mqtt_client import _create_event_loop
+
+        with patch("core.bridge.mqtt_client.sys.platform", "win32"):
+            loop = _create_event_loop()
+            try:
+                self.assertIsInstance(loop, asyncio.SelectorEventLoop)
+            finally:
+                loop.close()
+
 
 if __name__ == "__main__":
     unittest.main()
