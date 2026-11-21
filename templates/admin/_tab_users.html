@@ -122,41 +122,43 @@
         </div>
       </div>
 
-      <!-- SSO & Reverse Proxy / Authentik Future-Proof Integration Card -->
+      <!-- SSO & Reverse Proxy / Authentik Future-Proof Integration Card (Collapsible) -->
       <div class="card settings-card" id="cardSsoConfig">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
-          <div>
-            <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Authelia / Reverse Proxy)</h3>
-            <p class="text-secondary" style="margin: 0; font-size: 13px;">Matches users permanently by immutable Subject/UID after initial email or username match, and automatically adds new SSO users when unmatched.</p>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
-            <span class="badge badge-subtle" id="ssoConfigStatusBadge">ForwardAuth</span>
-          </div>
-        </div>
+        <details id="ssoConfigDetails">
+          <summary style="list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; user-select: none;">
+            <div>
+              <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Authelia / Reverse Proxy)</h3>
+              <p class="text-secondary" style="margin: 0; font-size: 13px;">Matches users permanently by immutable Subject/UID after initial email or username match, and supports OIDC Auto-Discovery.</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
+              <span class="badge badge-subtle" id="ssoConfigStatusBadge">ForwardAuth</span>
+              <span class="text-secondary" style="font-size: 12px; font-weight: 600;">▾ Expand / Collapse</span>
+            </div>
+          </summary>
 
-        <form id="ssoConfigForm" onsubmit="event.preventDefault(); saveSsoConfig();">
-          <!-- ForwardAuth Section -->
-          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
-              <div>
-                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Reverse-Proxy ForwardAuth (Authentik / Authelia / NPM / Cloudflare)</strong>
-                <span class="text-secondary" style="font-size: 12px;">Trust identity headers asserted by proxies matching <code>TRUSTED_PROXIES</code>.</span>
+          <form id="ssoConfigForm" onsubmit="event.preventDefault(); saveSsoConfig();" style="margin-top: 16px;">
+            <!-- ForwardAuth Section -->
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+                <div>
+                  <strong style="font-size: 14px; color: var(--text-primary); display: block;">Reverse-Proxy ForwardAuth (Authentik / Authelia / NPM / Cloudflare)</strong>
+                  <span class="text-secondary" style="font-size: 12px;">Trust identity headers asserted by proxies matching <code>TRUSTED_PROXIES</code>.</span>
+                </div>
+                <label class="toggle-control">
+                  <input type="checkbox" id="ssoForwardAuthEnabled">
+                  <span class="toggle-slider"></span>
+                  <span style="font-size: 12px; font-weight: 600;">Active</span>
+                </label>
               </div>
-              <label class="toggle-control">
-                <input type="checkbox" id="ssoForwardAuthEnabled">
-                <span class="toggle-slider"></span>
-                <span style="font-size: 12px; font-weight: 600;">Active</span>
-              </label>
-            </div>
 
-            <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; font-size: 12px;">
-              <strong style="color: #93c5fd;">Active Env Trusted Proxies (<code>TRUSTED_PROXIES</code>):</strong>
-              <code id="ssoEnvTrustedProxies" style="margin-left: 6px; color: var(--text-primary);">127.0.0.1/32</code>
-            </div>
+              <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; font-size: 12px;">
+                <strong style="color: #93c5fd;">Active Env Trusted Proxies (<code>TRUSTED_PROXIES</code>):</strong>
+                <code id="ssoEnvTrustedProxies" style="margin-left: 6px; color: var(--text-primary);">127.0.0.1/32</code>
+              </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
-              <div>
+              <!-- Row 1: Identity Provider Name on its own line -->
+              <div style="margin-bottom: 12px;">
                 <label for="ssoProviderName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Identity Provider Name</label>
                 <select id="ssoProviderName" class="form-control">
                   <option value="Authentik">Authentik</option>
@@ -165,113 +167,135 @@
                   <option value="Reverse Proxy">Generic ForwardAuth</option>
                 </select>
               </div>
-              <div>
-                <label for="ssoDefaultRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Unmapped SSO User Role</label>
-                <select id="ssoDefaultRole" class="form-control">
-                  <option value="member">Member (Parent Portal Only)</option>
-                  <option value="admin">Admin (Full Console)</option>
-                </select>
+
+              <!-- Row 2: Unmapped SSO User Role + Admin Group Name -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                <div>
+                  <label for="ssoDefaultRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Unmapped SSO User Role</label>
+                  <select id="ssoDefaultRole" class="form-control">
+                    <option value="member">Member (Parent Portal Only)</option>
+                    <option value="admin">Admin (Full Console)</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="ssoAdminGroup" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Admin Group Name (Optional)</label>
+                  <input type="text" id="ssoAdminGroup" class="form-control" placeholder="e.g. storydeck-admins">
+                </div>
               </div>
-              <div>
-                <label for="ssoAdminGroup" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Admin Group Name (Optional)</label>
-                <input type="text" id="ssoAdminGroup" class="form-control" placeholder="e.g. storydeck-admins">
+
+              <!-- Row 3: Additional Trusted Proxies + SSO Logout Redirect URL -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 14px;">
+                <div>
+                  <label for="ssoExtraTrustedProxies" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Additional Trusted Proxy IPs / CIDRs</label>
+                  <input type="text" id="ssoExtraTrustedProxies" class="form-control" placeholder="e.g. 192.168.1.9, 172.18.0.0/16">
+                </div>
+                <div>
+                  <label for="ssoLogoutUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">SSO Logout Redirect URL (Optional)</label>
+                  <input type="text" id="ssoLogoutUrl" class="form-control" placeholder="https://auth.example.com/application/o/.../end-session/">
+                </div>
               </div>
-              <div>
-                <label for="ssoHeaderSubject" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Immutable Subject / UID Header</label>
-                <input type="text" id="ssoHeaderSubject" class="form-control" placeholder="X-authentik-uid">
-              </div>
-              <div>
-                <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
-                <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
-              </div>
-              <div>
-                <label for="ssoHeaderEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email Header (Initial Match)</label>
-                <input type="text" id="ssoHeaderEmail" class="form-control" placeholder="X-authentik-email">
-              </div>
-              <div>
-                <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
-                <input type="text" id="ssoHeaderDisplayName" class="form-control" placeholder="X-authentik-name">
-              </div>
-              <div>
-                <label for="ssoHeaderGroups" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Groups Header</label>
-                <input type="text" id="ssoHeaderGroups" class="form-control" placeholder="X-authentik-groups">
-              </div>
-              <div>
-                <label for="ssoExtraTrustedProxies" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Additional Trusted Proxy IPs / CIDRs</label>
-                <input type="text" id="ssoExtraTrustedProxies" class="form-control" placeholder="e.g. 192.168.1.9, 172.18.0.0/16">
-              </div>
-              <div>
-                <label for="ssoLogoutUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">SSO Logout Redirect URL (Optional)</label>
-                <input type="text" id="ssoLogoutUrl" class="form-control" placeholder="https://auth.example.com/application/o/.../end-session/">
+
+              <!-- Nested Collapsible Menu: Header Mapping Settings -->
+              <details id="ssoHeaderSettingsDetails" style="background: rgba(0,0,0,0.18); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px;">
+                <summary style="cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-primary); user-select: none;">
+                  ⚙️ Header Mapping Settings (ForwardAuth Headers)
+                </summary>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px;">
+                  <div>
+                    <label for="ssoHeaderSubject" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Immutable Subject / UID Header</label>
+                    <input type="text" id="ssoHeaderSubject" class="form-control" placeholder="X-authentik-uid">
+                  </div>
+                  <div>
+                    <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
+                    <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
+                  </div>
+                  <div>
+                    <label for="ssoHeaderEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email Header</label>
+                    <input type="text" id="ssoHeaderEmail" class="form-control" placeholder="X-authentik-email">
+                  </div>
+                  <div>
+                    <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
+                    <input type="text" id="ssoHeaderDisplayName" class="form-control" placeholder="X-authentik-name">
+                  </div>
+                  <div>
+                    <label for="ssoHeaderGroups" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Groups Header</label>
+                    <input type="text" id="ssoHeaderGroups" class="form-control" placeholder="X-authentik-groups">
+                  </div>
+                </div>
+              </details>
+
+              <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                  <div>
+                    <strong style="font-size: 13px; color: var(--text-primary);">Auto-Link Existing Accounts (Email → Username)</strong>
+                    <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If no account has this SSO UID bound yet, match an unbound local account by email first, then username, and permanently bind its SSO UID.</p>
+                  </div>
+                  <label class="toggle-control">
+                    <input type="checkbox" id="ssoAutoLinkExistingUsers">
+                    <span class="toggle-slider"></span>
+                    <span style="font-size: 12px;">Auto-Link</span>
+                  </label>
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                  <div>
+                    <strong style="font-size: 13px; color: var(--text-primary);">Auto-Add Unmatched SSO Users</strong>
+                    <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If neither Subject UID, email, nor username matches an existing account, create a new user with its bound UID and resolved role.</p>
+                  </div>
+                  <label class="toggle-control">
+                    <input type="checkbox" id="ssoAutoProvisionUsers">
+                    <span class="toggle-slider"></span>
+                    <span style="font-size: 12px;">Auto-Add</span>
+                  </label>
+                </div>
               </div>
             </div>
 
-            <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 12px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <!-- Native OIDC / Auto-Discovery Subsection -->
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
                 <div>
-                  <strong style="font-size: 13px; color: var(--text-primary);">Auto-Link Existing Accounts (Email → Username)</strong>
-                  <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If no account has this SSO UID bound yet, match an unbound local account by email first, then username, and permanently bind its SSO UID.</p>
+                  <strong style="font-size: 14px; color: var(--text-primary); display: block;">OpenID Connect (OIDC) Auto-Discovery <span class="badge badge-info" style="margin-left: 6px;">Authentik / Authelia</span></strong>
+                  <span class="text-secondary" style="font-size: 12px;">Enter your provider's public/browser-reachable <code>.well-known/openid-configuration</code> URL (or Issuer URL — <code>.well-known/openid-configuration</code> is appended automatically).</span>
                 </div>
                 <label class="toggle-control">
-                  <input type="checkbox" id="ssoAutoLinkExistingUsers">
+                  <input type="checkbox" id="ssoOidcEnabled">
                   <span class="toggle-slider"></span>
-                  <span style="font-size: 12px;">Auto-Link</span>
+                  <span style="font-size: 12px; font-weight: 600;">Enabled</span>
                 </label>
               </div>
 
-              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-                <div>
-                  <strong style="font-size: 13px; color: var(--text-primary);">Auto-Add Unmatched SSO Users</strong>
-                  <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If neither Subject UID, email, nor username matches an existing account, create a new user with its bound UID and resolved role.</p>
+              <div style="margin-bottom: 12px;">
+                <label for="ssoOidcIssuerUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Auto-Discovery / Issuer URL</label>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <input type="text" id="ssoOidcIssuerUrl" class="form-control" style="flex: 1; min-width: 260px;" placeholder="https://auth.example.com/application/o/storydeck/.well-known/openid-configuration">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnTestOidcDiscovery" onclick="testOidcDiscovery()">🔍 Test Auto-Discovery</button>
                 </div>
-                <label class="toggle-control">
-                  <input type="checkbox" id="ssoAutoProvisionUsers">
-                  <span class="toggle-slider"></span>
-                  <span style="font-size: 12px;">Auto-Add</span>
-                </label>
+                <div id="oidcDiscoveryResult" style="display: none; margin-top: 8px; padding: 10px 12px; border-radius: 6px; font-size: 12px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3);"></div>
               </div>
-            </div>
-          </div>
 
-          <!-- Future-Proof Native OIDC Subsection -->
-          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
-              <div>
-                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Native OIDC / OAuth2 Client Settings <span class="badge badge-info" style="margin-left: 6px;">Future Ready</span></strong>
-                <span class="text-secondary" style="font-size: 12px;">Pre-configure Authentik OIDC discovery parameters and redirect URI alongside ForwardAuth.</span>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                <div>
+                  <label for="ssoOidcClientId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client ID</label>
+                  <input type="text" id="ssoOidcClientId" class="form-control" placeholder="storydeck-core-client" autocomplete="off">
+                </div>
+                <div>
+                  <label for="ssoOidcClientSecret" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client Secret</label>
+                  <input type="password" id="ssoOidcClientSecret" class="form-control" placeholder="Optional client secret" autocomplete="new-password">
+                </div>
               </div>
-              <label class="toggle-control">
-                <input type="checkbox" id="ssoOidcEnabled">
-                <span class="toggle-slider"></span>
-                <span style="font-size: 12px; font-weight: 600;">Mark Ready</span>
-              </label>
-            </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
-              <div>
-                <label for="ssoOidcIssuerUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Issuer / Discovery URL</label>
-                <input type="text" id="ssoOidcIssuerUrl" class="form-control" placeholder="https://auth.example.com/application/o/storydeck/">
-              </div>
-              <div>
-                <label for="ssoOidcClientId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client ID</label>
-                <input type="text" id="ssoOidcClientId" class="form-control" placeholder="storydeck-core-client" autocomplete="off">
-              </div>
-              <div>
-                <label for="ssoOidcClientSecret" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client Secret</label>
-                <input type="password" id="ssoOidcClientSecret" class="form-control" placeholder="Optional client secret" autocomplete="new-password">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <label for="ssoOidcCallbackUri" style="font-size: 11px; color: var(--text-secondary); font-weight: 600;">Reserved Callback URI:</label>
+                <input type="text" id="ssoOidcCallbackUri" class="form-control" readonly style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.28);">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="copyOidcCallbackUri()">📋 Copy URI</button>
               </div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <label for="ssoOidcCallbackUri" style="font-size: 11px; color: var(--text-secondary); font-weight: 600;">Reserved Callback URI:</label>
-              <input type="text" id="ssoOidcCallbackUri" class="form-control" readonly style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.28);">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="copyOidcCallbackUri()">📋 Copy URI</button>
+            <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+              <button type="submit" class="btn btn-primary" id="btnSaveSsoConfig">💾 Save Access &amp; SSO Settings</button>
             </div>
-          </div>
-
-          <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
-            <button type="submit" class="btn btn-primary" id="btnSaveSsoConfig">💾 Save Access &amp; SSO Settings</button>
-          </div>
-        </form>
+          </form>
+        </details>
       </div>
     </section>

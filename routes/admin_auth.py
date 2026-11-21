@@ -426,6 +426,45 @@ def admin_sso_config():
     }), 200
 
 
+@admin_auth_bp.route("/api/admin/auth/oidc-discover", methods=["POST"])
+@require_admin
+def admin_oidc_discover():
+    """Fetch an OpenID Connect .well-known/openid-configuration document (Authentik, Authelia, etc.)."""
+    import requests
+    data = request.get_json(silent=True) or {}
+    raw_url = str(data.get("url") or "").strip()
+    if not raw_url:
+        return jsonify({"ok": False, "error": "Discovery or Issuer URL is required."}), 400
+    if not (raw_url.startswith("https://") or raw_url.startswith("http://")):
+        return jsonify({"ok": False, "error": "URL must start with https:// or http://"}), 400
+
+    if raw_url.rstrip("/").endswith("/.well-known/openid-configuration"):
+        discovery_url = raw_url.rstrip("/")
+    else:
+        discovery_url = raw_url.rstrip("/") + "/.well-known/openid-configuration"
+
+    try:
+        resp = requests.get(discovery_url, timeout=8)
+        if resp.status_code != 200:
+            return jsonify({"ok": False, "error": f"Provider returned HTTP {resp.status_code} for {discovery_url}"}), 502
+        doc = resp.json()
+        if not isinstance(doc, dict) or not doc.get("issuer"):
+            return jsonify({"ok": False, "error": "Response is not a valid OpenID Connect discovery document."}), 502
+        return jsonify({
+            "ok": True,
+            "discovery_url": discovery_url,
+            "issuer": doc.get("issuer", ""),
+            "authorization_endpoint": doc.get("authorization_endpoint", ""),
+            "token_endpoint": doc.get("token_endpoint", ""),
+            "userinfo_endpoint": doc.get("userinfo_endpoint", ""),
+            "end_session_endpoint": doc.get("end_session_endpoint", ""),
+            "jwks_uri": doc.get("jwks_uri", ""),
+        }), 200
+    except Exception as exc:
+        logger.warning(f"OIDC discovery failed for {discovery_url}: {exc}")
+        return jsonify({"ok": False, "error": f"Failed to reach discovery URL: {exc}"}), 502
+
+
 @admin_auth_bp.route("/api/auth/oidc/callback", methods=["GET", "POST"])
 def oidc_callback_placeholder():
     """Reserved OIDC Authorization Code callback route for future native OIDC support."""

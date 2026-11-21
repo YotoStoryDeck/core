@@ -606,3 +606,68 @@ function copyOidcCallbackUri() {
     showToast("Select and copy the callback URI field.", "info");
   }
 }
+
+async function testOidcDiscovery() {
+  const urlInput = document.getElementById("ssoOidcIssuerUrl");
+  const btn = document.getElementById("btnTestOidcDiscovery");
+  const box = document.getElementById("oidcDiscoveryResult");
+  const rawUrl = (urlInput?.value || "").trim();
+
+  if (!rawUrl) {
+    showToast("Enter an OIDC Discovery or Issuer URL first.", "warning");
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "🔍 Probing...";
+  }
+  if (box) {
+    box.style.display = "none";
+  }
+
+  try {
+    const res = await fetch("/api/admin/auth/oidc-discover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: rawUrl })
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      if (box) {
+        box.style.display = "block";
+        box.style.background = "rgba(16, 185, 129, 0.08)";
+        box.style.borderColor = "rgba(16, 185, 129, 0.35)";
+        box.innerHTML =
+          `<strong>✅ OIDC Auto-Discovery Succeeded</strong><br>` +
+          `<span class="text-secondary">Issuer:</span> <code>${escapeHtml(data.issuer || "")}</code><br>` +
+          `<span class="text-secondary">Authorization:</span> <code>${escapeHtml(data.authorization_endpoint || "")}</code><br>` +
+          `<span class="text-secondary">Token:</span> <code>${escapeHtml(data.token_endpoint || "")}</code>` +
+          (data.end_session_endpoint ? `<br><span class="text-secondary">End Session:</span> <code>${escapeHtml(data.end_session_endpoint)}</code>` : "");
+      }
+      const logoutEl = document.getElementById("ssoLogoutUrl");
+      if (logoutEl && !logoutEl.value.trim() && data.end_session_endpoint) {
+        logoutEl.value = data.end_session_endpoint;
+        checkSsoDirty();
+        showToast("OIDC discovered! Auto-filled SSO Logout Redirect URL.", "success");
+      } else {
+        showToast("OIDC Auto-Discovery verified successfully.", "success");
+      }
+    } else {
+      if (box) {
+        box.style.display = "block";
+        box.style.background = "rgba(239, 68, 68, 0.08)";
+        box.style.borderColor = "rgba(239, 68, 68, 0.35)";
+        box.innerHTML = `<strong>❌ Discovery Failed:</strong> ${escapeHtml(data.error || "Unable to fetch .well-known/openid-configuration")}`;
+      }
+      showToast(data.error || "OIDC discovery failed.", "danger");
+    }
+  } catch (err) {
+    showToast("Network error probing OIDC discovery URL.", "danger");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "🔍 Test Auto-Discovery";
+    }
+  }
+}
