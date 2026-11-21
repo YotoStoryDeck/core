@@ -1,3 +1,15 @@
+import { CONFIG } from './config.js';
+
+function _sKey(name) {
+  return `storydeck_${CONFIG.DEVICE_ID}_${name}`;
+}
+
+function _readScoped(name, legacyKey) {
+  const val = localStorage.getItem(_sKey(name));
+  if (val !== null) return val;
+  return legacyKey ? localStorage.getItem(legacyKey) : null;
+}
+
 /**
  * Central State Store & Screen State Management
  */
@@ -44,17 +56,17 @@ export const state = {
   pinLockoutUntil: 0,
   init() {
     try {
-      const savedMode = localStorage.getItem('storydeck_mode');
+      const savedMode = _readScoped('mode', 'storydeck_mode');
       if (savedMode === 'standalone' || savedMode === 'core') this.mode = savedMode;
-      const savedLock = localStorage.getItem('storydeck_lock_player');
+      const savedLock = _readScoped('lock_player', 'storydeck_lock_player');
       if (savedLock !== null) this.lockPlayer = (savedLock === 'true');
-      const savedLockId = localStorage.getItem('storydeck_locked_player_id');
+      const savedLockId = _readScoped('locked_player_id', 'storydeck_locked_player_id');
       if (savedLockId) this.lockedPlayerId = savedLockId;
-      const savedSettings = localStorage.getItem('storydeck_parent_settings');
+      const savedSettings = _readScoped('parent_settings', 'storydeck_parent_settings');
       if (savedSettings) {
         this.parentSettings = Object.assign(this.parentSettings, JSON.parse(savedSettings));
       }
-      const savedPin = localStorage.getItem('storydeck_parent_pin');
+      const savedPin = _readScoped('parent_pin', 'storydeck_parent_pin');
       if (savedPin) this.parentPin = savedPin;
     } catch (e) {
       console.warn('Could not read stored settings:', e);
@@ -62,11 +74,11 @@ export const state = {
   },
   persistParentSettings(syncRemote = true) {
     try {
-      localStorage.setItem('storydeck_mode', this.mode);
-      localStorage.setItem('storydeck_lock_player', String(this.lockPlayer));
-      if (this.lockedPlayerId) localStorage.setItem('storydeck_locked_player_id', this.lockedPlayerId);
-      localStorage.setItem('storydeck_parent_settings', JSON.stringify(this.parentSettings));
-      if (this.parentPin) localStorage.setItem('storydeck_parent_pin', this.parentPin);
+      localStorage.setItem(_sKey('mode'), this.mode);
+      localStorage.setItem(_sKey('lock_player'), String(this.lockPlayer));
+      if (this.lockedPlayerId) localStorage.setItem(_sKey('locked_player_id'), this.lockedPlayerId);
+      localStorage.setItem(_sKey('parent_settings'), JSON.stringify(this.parentSettings));
+      if (this.parentPin) localStorage.setItem(_sKey('parent_pin'), this.parentPin);
       if (syncRemote && typeof window !== 'undefined' && window.__storydeckSyncSettings) {
         window.__storydeckSyncSettings();
       }

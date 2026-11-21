@@ -222,7 +222,9 @@ export const GrownUpsScreen = {
                 <b>Host:</b> ${window.location.host}<br>
                 <b>Core Server Link:</b> ${window.location.origin}<br>
                 <b>Client Platform:</b> ${navigator.userAgentData?.platform || navigator.platform || 'Tablet'}<br>
-                <b>Resolution:</b> ${window.innerWidth} &times; ${window.innerHeight} px (${window.devicePixelRatio || 1}x DPI)
+                <b>Resolution:</b> ${window.innerWidth} &times; ${window.innerHeight} px (${window.devicePixelRatio || 1}x DPI)<br>
+                <b>Kiosk Bookmark URL:</b> <code style="font-size:11px; word-break:break-all;">${Utils.esc(CONFIG.BOOKMARK_URL || window.location.href)}</code>
+                <button type="button" class="gu-pill-btn" style="padding:3px 8px; font-size:11px; margin-left:6px;" onclick="navigator.clipboard && navigator.clipboard.writeText('${Utils.esc(CONFIG.BOOKMARK_URL || window.location.href)}').then(() => { this.textContent = '✓ Copied'; setTimeout(() => { this.textContent = '📋 Copy Link'; }, 1500); })">📋 Copy Link</button>
               </div>
             </div>
 
