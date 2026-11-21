@@ -198,8 +198,6 @@ function openEditUserModal(userId) {
   if (emailEl) emailEl.value = u.email || "";
   document.getElementById("editUserRole").value = u.role || "member";
   document.getElementById("editUserAuthSource").value = (u.sso_provider || "").trim().toLowerCase();
-  const subEl = document.getElementById("editUserSsoSubject");
-  if (subEl) subEl.value = u.sso_subject || "";
   document.getElementById("editUserPassword").value = "";
 
   const subtitle = document.getElementById("editUserModalSubtitle");
@@ -230,14 +228,6 @@ function openEditUserModal(userId) {
   modal.style.display = "flex";
 }
 
-function unlinkEditUserSsoSubject() {
-  const subEl = document.getElementById("editUserSsoSubject");
-  if (subEl) {
-    subEl.value = "";
-  }
-  showToast("Cleared bound SSO Subject UID. Save changes to allow re-linking on next SSO login.", "info");
-}
-
 function closeEditUserModal() {
   const modal = document.getElementById("editUserModal");
   if (modal) modal.style.display = "none";
@@ -250,7 +240,6 @@ async function saveEditedUserProfile() {
   const email = document.getElementById("editUserEmail")?.value.trim() || "";
   const roleEl = document.getElementById("editUserRole");
   const ssoProvider = document.getElementById("editUserAuthSource")?.value || "";
-  const ssoSubject = document.getElementById("editUserSsoSubject")?.value.trim() || "";
   const password = document.getElementById("editUserPassword")?.value || "";
 
   if (!uid || !username) {
@@ -266,8 +255,7 @@ async function saveEditedUserProfile() {
     username,
     display_name: displayName,
     email,
-    sso_provider: ssoProvider,
-    sso_subject: ssoSubject
+    sso_provider: ssoProvider
   };
   if (roleEl && !roleEl.disabled) {
     payload.role = roleEl.value;

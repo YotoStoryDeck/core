@@ -19,7 +19,7 @@
         </div>
 
         <div class="form-group">
-          <label for="editUserEmail">Email Address (SSO Initial Match)</label>
+          <label for="editUserEmail">Email Address</label>
           <input type="email" id="editUserEmail" class="form-control" autocomplete="off" placeholder="user@example.com">
         </div>
 
@@ -41,14 +41,6 @@
             <option value="cloudflare_access">Cloudflare Access SSO</option>
             <option value="sso">Generic Reverse-Proxy SSO</option>
           </select>
-        </div>
-
-        <div class="form-group">
-          <label for="editUserSsoSubject">Bound SSO Subject / UID</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input type="text" id="editUserSsoSubject" class="form-control" autocomplete="off" placeholder="Auto-bound on first SSO login" style="font-family: monospace; font-size: 12px;">
-            <button type="button" class="btn btn-secondary btn-sm" id="btnUnlinkSsoSubject" onclick="unlinkEditUserSsoSubject()" title="Clear bound SSO Subject UID so the next login can re-link">Unlink</button>
-          </div>
         </div>
 
         <div class="form-group">
