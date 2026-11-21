@@ -8,7 +8,7 @@ logger = logging.getLogger("yoto_broker.database")
 
 IS_DOCKER = os.path.exists("/.dockerenv") or (os.path.exists("/app") and os.path.isfile("/app/app.py"))
 DB_DEFAULT = "/app/data/broker.db" if IS_DOCKER else str(Path(__file__).parent.parent / "data" / "broker.db")
-CONFIG_DEFAULT = "/app/data/config.json" if IS_DOCKER else str(Path(__file__).parent.parent / "config.example.json")
+CONFIG_DEFAULT = "/app/data/config.json" if IS_DOCKER else str(Path(__file__).parent.parent / "data" / "config.json")
 
 DB_PATH = Path(os.getenv("DB_PATH", DB_DEFAULT))
 LEGACY_CONFIG_PATH = Path(os.getenv("CONFIG_PATH", CONFIG_DEFAULT))

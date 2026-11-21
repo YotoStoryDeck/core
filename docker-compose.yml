@@ -4,30 +4,32 @@ services:
     container_name: storydeck-core
     restart: unless-stopped
     ports:
-      - "5055:5055"
+      - "${PORT:-5055}:5055"
     environment:
       - PORT=5055
       - APP_VERSION=${APP_VERSION:-}
-      - ABS_BASE_URL=http://audiobookshelf:80
-      - ABS_API_KEY=${ABS_API_KEY}
-      - YOTO_CLIENT_ID=${YOTO_CLIENT_ID}
-      - YOTO_CLIENT_SECRET=${YOTO_CLIENT_SECRET}
-      - YOTO_REFRESH_TOKEN=${YOTO_REFRESH_TOKEN}
-      - YOTO_BRIDGE_URL=http://yoto-bridge:8080
+      - SECRET_KEY=${SECRET_KEY:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-127.0.0.1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DB_PATH=/app/data/broker.db
       - CACHE_DIR=/app/cache/thumbnails
+      - AVATARS_DIR=/app/data/avatars
+      - CUSTOM_ICONS_DIR=/app/data/custom_icons
+      - FIRMWARE_DIR=/app/data/firmware
       - THUMBNAIL_SIZE=100
+      - ABS_BASE_URL=${ABS_BASE_URL:-}
+      - ABS_API_KEY=${ABS_API_KEY:-}
+      - YOTO_CLIENT_ID=${YOTO_CLIENT_ID:-}
+      - YOTO_REFRESH_TOKEN=${YOTO_REFRESH_TOKEN:-}
+      - TINKER_API_KEY=${TINKER_API_KEY:-}
       - AI_CHAPTER_ART_ENABLED=${AI_CHAPTER_ART_ENABLED:-false}
       - AI_PROVIDER=${AI_PROVIDER:-openrouter}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-5-sonnet-20241022}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-stabilityai/stable-diffusion-xl-base-1.0}
-      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-127.0.0.1}
-      - DB_PATH=/app/data/broker.db
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./data:/app/data
       - ./cache:/app/cache
-

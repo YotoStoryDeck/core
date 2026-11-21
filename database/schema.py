@@ -531,7 +531,7 @@ def migrate_legacy_config(conn: sqlite3.Connection):
                 "yoto_client_id": data.get("yoto_client_id") or settings.get("yoto_client_id") or os.getenv("YOTO_CLIENT_ID", ""),
                 "yoto_client_secret": data.get("yoto_client_secret") or settings.get("yoto_client_secret") or os.getenv("YOTO_CLIENT_SECRET", ""),
                 "yoto_refresh_token": data.get("yoto_refresh_token") or settings.get("yoto_refresh_token") or os.getenv("YOTO_REFRESH_TOKEN", ""),
-                "yoto_bridge_url": data.get("yoto_bridge_url") or settings.get("yoto_bridge_url") or os.getenv("YOTO_BRIDGE_URL", "http://yoto-bridge:8080"),
+                "yoto_bridge_url": data.get("yoto_bridge_url") or settings.get("yoto_bridge_url") or os.getenv("YOTO_BRIDGE_URL", ""),
                 "gemini_api_key": data.get("gemini_api_key") or settings.get("gemini_api_key") or os.getenv("GEMINI_API_KEY", ""),
                 "anthropic_api_key": data.get("anthropic_api_key") or settings.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", ""),
                 "openrouter_api_key": data.get("openrouter_api_key") or settings.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY", "")
