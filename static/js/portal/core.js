@@ -3,6 +3,7 @@
 // ==============================================================================
 
 let currentProfiles = {};
+let profileList = [];
 let activeProfileId = "";
 let currentDevices = [];
 let activeDeviceId = "";
@@ -18,8 +19,32 @@ let isScrubbing = false;
 let yotoTokenValid = true;
 let authCheckInterval = null;
 
+const PORTAL_PROFILE_STORAGE_KEY = "storydeck_portal_profile";
+const PORTAL_TAB_TITLES = {
+  player: "Player",
+  library: "Child Library",
+  cards: "Physical Cards",
+  playlists: "Yoto Cloud Playlists"
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   initPortal();
+});
+
+window.addEventListener("storydeck:core-status", async (e) => {
+  if (e && e.detail && e.detail.recovered) {
+    await checkYotoAuthStatus(false);
+    await loadPortalUserIdentity();
+    if (yotoTokenValid) {
+      await loadProfiles();
+      await loadDevices();
+      await loadLibrary();
+      loadContinueListening();
+      loadCards();
+      loadPlaylists();
+      pollPlayerStatus();
+    }
+  }
 });
 
 // -----------------------------------------------------------------------------
@@ -28,14 +53,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function switchTab(tabName) {
   if (!yotoTokenValid) return;
-  document.querySelectorAll(".tab-view").forEach(el => el.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach(el => el.classList.remove("active"));
+  if (window.StoryDeckHealth && window.StoryDeckHealth.isOffline()) return;
 
-  const targetTab = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
-  const targetNav = document.getElementById(`navTab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+  document.querySelectorAll(".tab-view").forEach(el => el.classList.remove("active"));
+  document.querySelectorAll(".sidebar-nav-item[data-tab]").forEach(el => el.classList.remove("active"));
+
+  const cap = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+  const targetTab = document.getElementById(`tab${cap}`);
+  const targetNav = document.getElementById(`navTab${cap}`);
 
   if (targetTab) targetTab.classList.add("active");
   if (targetNav) targetNav.classList.add("active");
+
+  const titleEl = document.getElementById("portalPageTitle");
+  if (titleEl) {
+    titleEl.innerText = PORTAL_TAB_TITLES[tabName] || cap;
+  }
+
+  if (typeof closeMobileSidebar === "function") {
+    closeMobileSidebar();
+  }
 
   if (tabName === "cards") loadCards();
   if (tabName === "playlists") loadPlaylists();
@@ -58,25 +95,42 @@ async function checkYotoAuthStatus(force = false) {
     retryBtn.innerText = "⏳ Checking Yoto Token...";
   }
 
-  let data = {
-    token_valid: false,
-    error: "Unable to verify Yoto API connection."
-  };
+  let data = null;
+  let coreReachable = true;
 
   try {
-    const res = await fetch(`/api/yoto/auth-status${force ? "?force=1" : ""}`);
-    if (res.ok) {
+    const res = await fetch(`/api/yoto/auth-status${force ? "?force=1" : ""}`, { cache: "no-store" });
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      coreReachable = false;
+      if (window.StoryDeckHealth) {
+        window.StoryDeckHealth.reportNetworkError(`Core gateway returned HTTP ${res.status}.`);
+      }
+    } else if (res.ok) {
       data = await res.json();
     } else {
-      data.error = `Yoto status check returned HTTP ${res.status}.`;
+      data = { token_valid: false, error: `Yoto status check returned HTTP ${res.status}.` };
     }
   } catch (err) {
-    data.error = "Unable to reach StoryDeck Core server to verify Yoto token.";
+    coreReachable = false;
+    if (window.StoryDeckHealth) {
+      window.StoryDeckHealth.reportNetworkError("Unable to reach StoryDeck Core server.");
+    }
   } finally {
     if (force && retryBtn) {
       retryBtn.disabled = false;
       retryBtn.innerText = "🔄 Retry Yoto Connection";
     }
+  }
+
+  if (!coreReachable) {
+    if (pill) {
+      pill.className = "yoto-status-pill checking";
+      pill.innerText = "⚠️ Core Offline";
+      pill.title = "StoryDeck Core server is unreachable";
+    }
+    document.body.classList.remove("yoto-auth-locked");
+    if (blockedView) blockedView.style.display = "none";
+    return false;
   }
 
   const valid = Boolean(data && data.token_valid);
@@ -89,7 +143,7 @@ async function checkYotoAuthStatus(force = false) {
     } else {
       pill.className = "yoto-status-pill error";
       pill.innerText = "🔴 Yoto Token Error";
-      pill.title = data.error || "Yoto API Token Not Resolving";
+      pill.title = (data && data.error) || "Yoto API Token Not Resolving";
     }
   }
 
@@ -98,7 +152,7 @@ async function checkYotoAuthStatus(force = false) {
     document.body.classList.add("yoto-auth-locked");
     if (blockedView) blockedView.style.display = "block";
     if (errDetail) {
-      errDetail.innerText = data.error || "Yoto OAuth token is expired or invalid. Open Admin Settings → Yoto Play Cloud to reconnect.";
+      errDetail.innerText = (data && data.error) || "Yoto OAuth token is expired or invalid. Open Admin Settings → Yoto Play Cloud to reconnect.";
     }
     return false;
   }
@@ -122,10 +176,49 @@ async function checkYotoAuthStatus(force = false) {
 }
 
 // -----------------------------------------------------------------------------
-// Initialization
+// Portal Identity & Initialization
 // -----------------------------------------------------------------------------
 
+async function loadPortalUserIdentity() {
+  const badgeEl = document.getElementById("portalUserBadge");
+  const nameEl = document.getElementById("sidebarUserName");
+  const roleEl = document.getElementById("sidebarUserRole");
+
+  try {
+    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.authenticated || !data.user) {
+      if (nameEl) nameEl.innerText = "Sign In Required";
+      if (roleEl) roleEl.innerText = "Unauthenticated";
+      return;
+    }
+
+    const u = data.user;
+    const displayName = u.display_name || u.username || "Household";
+    let roleLabel = u.role === "admin" ? "Admin" : "Member";
+    if (u.is_lan_guest) {
+      roleLabel = "LAN Guest";
+    } else if (u.auth_type === "sso") {
+      roleLabel = `SSO (${u.sso_provider || "Authentik"})`;
+    }
+
+    if (nameEl) nameEl.innerText = displayName;
+    if (roleEl) roleEl.innerText = roleLabel;
+    if (badgeEl) {
+      badgeEl.style.display = "inline-flex";
+      badgeEl.innerText = u.is_lan_guest ? "🏠 LAN" : (u.auth_type === "sso" ? `🛡️ ${displayName}` : `👤 ${displayName}`);
+      badgeEl.title = `${displayName} • ${roleLabel}`;
+    }
+  } catch (err) {
+    if (window.StoryDeckHealth) {
+      window.StoryDeckHealth.reportNetworkError("Failed checking portal session.");
+    }
+  }
+}
+
 async function initPortal() {
+  loadPortalUserIdentity();
   const yotoOk = await checkYotoAuthStatus(false);
   if (yotoOk) {
     await loadProfiles();
@@ -138,77 +231,194 @@ async function initPortal() {
     pollPlayerStatus();
   }
 
-  // Start polling player status every 3.5s (only while Yoto token is healthy)
+  // Start polling player status every 3.5s (only while Yoto token & Core are healthy)
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(() => {
-    if (yotoTokenValid) pollPlayerStatus();
+    if (yotoTokenValid && !(window.StoryDeckHealth && window.StoryDeckHealth.isOffline())) {
+      pollPlayerStatus();
+    }
   }, 3500);
 
-  // Periodically check Yoto token health every 15s
+  // Periodically check Yoto token health every 15s (only while Core is online)
   if (authCheckInterval) clearInterval(authCheckInterval);
-  authCheckInterval = setInterval(() => checkYotoAuthStatus(false), 15000);
+  authCheckInterval = setInterval(() => {
+    if (!(window.StoryDeckHealth && window.StoryDeckHealth.isOffline())) {
+      checkYotoAuthStatus(false);
+    }
+  }, 15000);
 }
 
 // -----------------------------------------------------------------------------
-// Profile Handling
+// Profile Avatar Carousel & Active Child Switching
 // -----------------------------------------------------------------------------
 
 async function loadProfiles() {
   try {
-    const res = await fetch("/api/admin/profiles");
-    if (!res.ok) return;
-    currentProfiles = await res.json();
-
-    const select = document.getElementById("headerProfileSelect");
-    select.innerHTML = "";
-
-    const pids = Object.keys(currentProfiles);
-    pids.forEach((pid, idx) => {
-      const p = currentProfiles[pid];
-      const opt = document.createElement("option");
-      opt.value = pid;
-      opt.innerText = `👶 ${p.display_name || pid}`;
-      select.appendChild(opt);
+    const res = await fetch("/api/profiles", { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status >= 502 && window.StoryDeckHealth) {
+        window.StoryDeckHealth.reportNetworkError(`Profiles fetch failed (HTTP ${res.status})`);
+      }
+      return;
+    }
+    const list = await res.json();
+    profileList = Array.isArray(list) ? list : [];
+    currentProfiles = {};
+    profileList.forEach(p => {
+      if (p && p.id) {
+        currentProfiles[p.id] = p;
+      }
     });
 
-    // Append All Household Library scope option
-    const allOpt = document.createElement("option");
-    allOpt.value = "__all__";
-    allOpt.innerText = "📚 All Household Library";
-    select.appendChild(allOpt);
+    let savedId = "";
+    try {
+      savedId = sessionStorage.getItem(PORTAL_PROFILE_STORAGE_KEY) || "";
+    } catch (e) {
+      savedId = "";
+    }
 
-    if (pids.length > 0 && !activeProfileId) {
-      activeProfileId = pids[0];
-      select.value = activeProfileId;
+    if (savedId && (savedId === "__all__" || currentProfiles[savedId])) {
+      activeProfileId = savedId;
+    } else if (profileList.length > 0 && (!activeProfileId || (activeProfileId !== "__all__" && !currentProfiles[activeProfileId]))) {
+      activeProfileId = profileList[0].id;
     } else if (!activeProfileId) {
       activeProfileId = "__all__";
-      select.value = "__all__";
     }
+
+    renderProfileCarousel();
+    updateProfileSummaryLabels();
   } catch (err) {
     console.error("Failed to load profiles:", err);
+    if (window.StoryDeckHealth) {
+      window.StoryDeckHealth.reportNetworkError("Failed fetching child profiles.");
+    }
+  }
+}
+
+function renderProfileCarousel() {
+  const carousel = document.getElementById("profileAvatarCarousel");
+  if (!carousel) return;
+  carousel.innerHTML = "";
+
+  profileList.forEach(p => {
+    const pid = p.id;
+    const name = p.display_name || pid;
+    const avatarUrl = p.avatar_url || `/api/avatar/${encodeURIComponent(pid)}`;
+    const bgColor = p.avatar_color || "#3b82f6";
+    const monogram = p.avatar_initial || name.charAt(0).toUpperCase() || "?";
+    const isActive = activeProfileId === pid;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `profile-avatar-chip${isActive ? " active" : ""}`;
+    btn.dataset.profileId = pid;
+    btn.setAttribute("role", "option");
+    btn.setAttribute("aria-selected", String(isActive));
+    btn.title = `Switch to ${name}`;
+    btn.onclick = () => switchActiveProfile(pid);
+
+    btn.innerHTML = `
+      <span class="profile-avatar-ring">
+        <img class="profile-avatar-img" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}">
+      </span>
+      <span class="profile-avatar-name">${escapeHtml(name)}</span>
+    `;
+
+    const img = btn.querySelector("img");
+    if (img) {
+      img.addEventListener("error", () => {
+        const ring = btn.querySelector(".profile-avatar-ring");
+        if (ring) {
+          ring.innerHTML = `<span class="profile-avatar-fallback" style="background: ${escapeHtml(bgColor)};">${escapeHtml(monogram)}</span>`;
+        }
+      });
+    }
+
+    carousel.appendChild(btn);
+  });
+
+  // Append "All" Household Library chip using a clean vector icon (no emoji)
+  const isAllActive = activeProfileId === "__all__";
+  const allBtn = document.createElement("button");
+  allBtn.type = "button";
+  allBtn.className = `profile-avatar-chip${isAllActive ? " active" : ""}`;
+  allBtn.dataset.profileId = "__all__";
+  allBtn.setAttribute("role", "option");
+  allBtn.setAttribute("aria-selected", String(isAllActive));
+  allBtn.title = "Show All Household Library";
+  allBtn.onclick = () => switchActiveProfile("__all__");
+  allBtn.innerHTML = `
+    <span class="profile-avatar-ring">
+      <span class="profile-avatar-all-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+      </span>
+    </span>
+    <span class="profile-avatar-name">All Books</span>
+  `;
+  carousel.appendChild(allBtn);
+}
+
+function updateProfileSummaryLabels() {
+  const p = currentProfiles[activeProfileId];
+  const summaryEl = document.getElementById("activeProfileSummaryLabel");
+  if (summaryEl) {
+    if (activeProfileId === "__all__") {
+      summaryEl.innerText = "All Household";
+    } else if (p) {
+      summaryEl.innerText = p.display_name || activeProfileId;
+    } else {
+      summaryEl.innerText = "No Profiles";
+    }
+  }
+
+  const childLabel = document.getElementById("libraryChildNameLabel");
+  if (childLabel) {
+    if (activeProfileId === "__all__") {
+      childLabel.innerText = "Showing all household books";
+    } else if (p) {
+      childLabel.innerText = `Showing books for ${p.display_name || activeProfileId}`;
+    }
   }
 }
 
 function switchActiveProfile(profileId) {
   activeProfileId = profileId;
+  try {
+    sessionStorage.setItem(PORTAL_PROFILE_STORAGE_KEY, profileId);
+  } catch (e) {
+    // Ignore storage access restriction errors
+  }
+
+  document.querySelectorAll("#profileAvatarCarousel .profile-avatar-chip").forEach((chip) => {
+    const match = chip.dataset.profileId === profileId;
+    chip.classList.toggle("active", match);
+    chip.setAttribute("aria-selected", String(match));
+  });
+
+  updateProfileSummaryLabels();
+
   const p = currentProfiles[profileId];
   if (p && p.default_player_id) {
-    activeDeviceId = p.default_player_id;
-    const devSelect = document.getElementById("playerDeviceSelect");
-    if (devSelect) devSelect.value = activeDeviceId;
-  }
-  const childLabel = document.getElementById("libraryChildNameLabel");
-  if (childLabel) {
-    if (profileId === "__all__") {
-      childLabel.innerText = "Showing all household books";
-    } else if (p) {
-      childLabel.innerText = `Showing books for ${p.display_name || profileId}`;
+    const hasDevice = currentDevices.length === 0 || currentDevices.some(d => (d.deviceId || d.id) === p.default_player_id);
+    if (hasDevice) {
+      activeDeviceId = p.default_player_id;
+      const devSelect = document.getElementById("playerDeviceSelect");
+      if (devSelect) devSelect.value = activeDeviceId;
+      if (typeof pollPlayerStatus === "function") {
+        pollPlayerStatus();
+      }
     }
+  }
+
+  if (typeof updatePlayerContextBadges === "function") {
+    updatePlayerContextBadges();
   }
   loadLibrary();
   loadContinueListening();
 }
-
 
 // -----------------------------------------------------------------------------
 // Utilities

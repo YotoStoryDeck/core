@@ -8,7 +8,7 @@ from .auth import (
     hash_password, verify_password, get_admin_user_count, create_admin_user,
     authenticate_user, get_user_by_username, list_admin_users,
     get_user_by_id, update_user_role, update_user_password,
-    update_user_display_name, delete_user
+    update_user_display_name, update_user_sso_provider, delete_user
 )
 from .profiles import (
     get_all_profiles, get_profile_by_id, upsert_profile, delete_profile,
@@ -30,7 +30,7 @@ from .curation import (
     batch_update_profile_media_permissions
 )
 from .settings import (
-    get_system_settings, set_system_setting, get_api_credentials, update_api_credentials,
+    DEFAULT_SSO_CONFIG, get_system_settings, get_sso_config, set_system_setting, get_api_credentials, update_api_credentials,
     get_master_api_key_details, get_master_api_key, regenerate_master_api_key
 )
 from .firmware import (
@@ -44,7 +44,7 @@ __all__ = [
     "hash_password", "verify_password", "get_admin_user_count", "create_admin_user",
     "authenticate_user", "get_user_by_username", "list_admin_users",
     "get_user_by_id", "update_user_role", "update_user_password",
-    "update_user_display_name", "delete_user",
+    "update_user_display_name", "update_user_sso_provider", "delete_user",
     "get_all_profiles", "get_profile_by_id", "upsert_profile", "delete_profile",
     "get_shared_rules", "set_shared_rule",
     "register_esp32_device", "get_esp32_device", "list_esp32_devices", "update_esp32_device",
@@ -56,7 +56,7 @@ __all__ = [
     "sanitize_display_text", "get_catalog_items_for_profile", "set_item_highlight",
     "batch_update_media_highlight", "set_item_physical", "batch_update_media_physical",
     "batch_update_profile_media_permissions",
-    "get_system_settings", "set_system_setting", "get_api_credentials", "update_api_credentials",
+    "DEFAULT_SSO_CONFIG", "get_system_settings", "get_sso_config", "set_system_setting", "get_api_credentials", "update_api_credentials",
     "get_master_api_key_details", "get_master_api_key", "regenerate_master_api_key",
     "list_firmware_releases", "get_firmware_release", "get_latest_firmware_release",
     "upsert_firmware_release", "set_active_latest_firmware", "delete_firmware_release",

@@ -45,7 +45,7 @@ def create_admin_user(username: str, password: str, display_name: str = "Parent"
             INSERT INTO admin_users (id, username, password_hash, salt, display_name, role, sso_provider)
             VALUES (?, ?, ?, ?, ?, ?, ?);
             """, (user_id, username, pw_hash, salt, display_name, role, sso_provider))
-        return {"id": user_id, "username": username, "display_name": display_name, "role": role}
+        return {"id": user_id, "username": username, "display_name": display_name, "role": role, "sso_provider": sso_provider}
     finally:
         conn.close()
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
@@ -142,6 +142,17 @@ def update_user_display_name(user_id: str, display_name: str) -> bool:
         with conn:
             cur = conn.cursor()
             cur.execute("UPDATE admin_users SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (display_name, user_id))
+            return cur.rowcount > 0
+    finally:
+        conn.close()
+
+def update_user_sso_provider(user_id: str, sso_provider: str) -> bool:
+    """Updates linked SSO provider identifier for a user record."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE admin_users SET sso_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (sso_provider.strip(), user_id))
             return cur.rowcount > 0
     finally:
         conn.close()

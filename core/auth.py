@@ -6,6 +6,8 @@ import hmac
 import hashlib
 import base64
 import json
+import re
+import secrets
 import time
 import ipaddress
 from typing import Dict, Any, Optional, Tuple
@@ -108,12 +110,35 @@ def get_effective_client_ip() -> str:
         return forwarded.split(",")[0].strip()
     return request.remote_addr or "127.0.0.1"
 
+def _parse_proxy_networks(entries) -> list:
+    """Parses IP/CIDR strings into ip_network objects, skipping invalid values."""
+    nets = []
+    for raw in entries or []:
+        p = str(raw or "").strip()
+        if not p:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(p, strict=False))
+        except ValueError:
+            try:
+                nets.append(ipaddress.ip_network(f"{p}/32", strict=False))
+            except ValueError:
+                logger.debug("Ignoring invalid extra trusted proxy entry: %s", p)
+    return nets
+
+
 def is_request_from_trusted_proxy() -> bool:
-    """Checks whether the direct remote IP matches TRUSTED_PROXIES."""
+    """Checks whether the direct remote IP matches env TRUSTED_PROXIES or DB extra_trusted_proxies."""
     remote_addr = request.remote_addr or "127.0.0.1"
     try:
         remote_ip = ipaddress.ip_address(remote_addr)
-        for net in TRUSTED_PROXIES:
+        all_nets = list(TRUSTED_PROXIES)
+        try:
+            sso_cfg = database.get_sso_config()
+            all_nets.extend(_parse_proxy_networks(sso_cfg.get("extra_trusted_proxies", [])))
+        except Exception as e:
+            logger.debug("SSO extra trusted proxy lookup skipped: %s", e)
+        for net in all_nets:
             if remote_ip in net:
                 return True
     except ValueError as e:
@@ -123,12 +148,116 @@ def is_request_from_trusted_proxy() -> bool:
     return False
 
 
+def _first_header_value(*names: str) -> str:
+    """Returns the first non-empty HTTP header value matching any candidate header name."""
+    seen = set()
+    for name in names:
+        clean_name = str(name or "").strip()
+        if not clean_name or clean_name.lower() in seen:
+            continue
+        seen.add(clean_name.lower())
+        val = request.headers.get(clean_name)
+        if val and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str, Any]]:
+    """
+    Resolves reverse-proxy SSO headers (Authentik / Authelia / Cloudflare Access)
+    when ForwardAuth is enabled and request arrives from a trusted proxy.
+    Supports group-based role mapping and optional user auto-provisioning.
+    """
+    try:
+        sso_cfg = database.get_sso_config()
+    except Exception:
+        sso_cfg = {}
+
+    if not sso_cfg.get("forward_auth_enabled", True):
+        return None
+    if not is_request_from_trusted_proxy():
+        return None
+
+    sso_username = _first_header_value(
+        sso_cfg.get("header_username"),
+        "X-authentik-username",
+        "X-Forwarded-User",
+        "Remote-User",
+        "Cf-Access-Authenticated-User-Email",
+    )
+    if not sso_username:
+        return None
+
+    sso_display_name = _first_header_value(
+        sso_cfg.get("header_display_name"),
+        "X-authentik-name",
+        "X-Forwarded-Name",
+    ) or sso_username
+
+    groups_raw = _first_header_value(
+        sso_cfg.get("header_groups"),
+        "X-authentik-groups",
+        "X-Forwarded-Groups",
+    )
+    groups = {g.strip().lower() for g in re.split(r"[|,;]", groups_raw) if g.strip()} if groups_raw else set()
+
+    provider_label = str(sso_cfg.get("provider_name") or "SSO").strip() or "SSO"
+    db_user = database.get_user_by_username(sso_username)
+
+    if db_user:
+        role = str(db_user.get("role") or "member").strip().lower()
+        uid = db_user["id"]
+        dname = db_user.get("display_name") or sso_display_name
+    else:
+        admin_group = str(sso_cfg.get("admin_group") or "").strip().lower()
+        if admin_group:
+            role = "admin" if admin_group in groups else "member"
+        else:
+            default_role = str(sso_cfg.get("default_role") or "admin").strip().lower()
+            role = default_role if default_role in ("admin", "member") else "admin"
+
+        uid = f"sso_{sso_username}"
+        dname = sso_display_name
+
+        if sso_cfg.get("auto_provision_users", False):
+            try:
+                created = database.create_admin_user(
+                    username=sso_username,
+                    password=secrets.token_urlsafe(32),
+                    display_name=sso_display_name,
+                    role=role,
+                    sso_provider=provider_label.lower(),
+                )
+                uid = created["id"]
+                dname = created.get("display_name") or sso_display_name
+            except Exception as e:
+                logger.debug("SSO auto-provision skipped/raced for '%s': %s", sso_username, e)
+                existing = database.get_user_by_username(sso_username)
+                if existing:
+                    uid = existing["id"]
+                    dname = existing.get("display_name") or sso_display_name
+                    role = str(existing.get("role") or role).strip().lower()
+
+    if require_admin_role and role != "admin":
+        return None
+
+    return {
+        "id": uid,
+        "username": sso_username,
+        "display_name": dname,
+        "role": role,
+        "is_lan_guest": False,
+        "auth_type": "sso",
+        "sso_provider": provider_label,
+    }
+
+
 def get_current_user() -> Optional[Dict[str, Any]]:
     """
     Retrieves the currently authenticated user identity.
     Checks in order:
     1. Master API Key (Role: admin)
-    2. Reverse-Proxy SSO Headers (Role: looked up in DB or defaults to admin)
+    2. Reverse-Proxy SSO Headers (Role: looked up in DB, mapped by group, or configured default)
     3. Authenticated Session Cookie (Role: member or admin)
     4. Trusted LAN / Sitter Access Bypass (Role: member, is_lan_guest: True)
     """
@@ -156,33 +285,10 @@ def get_current_user() -> Optional[Dict[str, Any]]:
                 "auth_type": "api_key"
             }
 
-    # 2. Reverse-Proxy SSO Headers (Authentik, Cloudflare Access)
-    if is_request_from_trusted_proxy():
-        sso_user = (
-            request.headers.get("X-authentik-username") or
-            request.headers.get("X-Forwarded-User") or
-            request.headers.get("Remote-User") or
-            request.headers.get("Cf-Access-Authenticated-User-Email")
-        )
-        if sso_user:
-            user = database.get_user_by_username(sso_user.strip())
-            if user:
-                return {
-                    "id": user["id"],
-                    "username": user["username"],
-                    "display_name": user["display_name"] or user["username"],
-                    "role": user.get("role", "admin"),
-                    "is_lan_guest": False,
-                    "auth_type": "sso"
-                }
-            return {
-                "id": f"sso_{sso_user.strip()}",
-                "username": sso_user.strip(),
-                "display_name": sso_user.strip(),
-                "role": "admin",
-                "is_lan_guest": False,
-                "auth_type": "sso"
-            }
+    # 2. Reverse-Proxy SSO Headers (Authentik, Authelia, Cloudflare Access)
+    sso_identity = _resolve_sso_identity(require_admin_role=False)
+    if sso_identity:
+        return sso_identity
 
     # 3. Local Session Cookie
     user_id = session.get("user_id")
@@ -255,34 +361,10 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "auth_type": "api_key"
             }
 
-    # 2. Reverse-Proxy SSO Headers (Authentik, Cloudflare Access)
-    if is_request_from_trusted_proxy():
-        sso_user = (
-            request.headers.get("X-authentik-username") or
-            request.headers.get("X-Forwarded-User") or
-            request.headers.get("Remote-User") or
-            request.headers.get("Cf-Access-Authenticated-User-Email")
-        )
-        if sso_user:
-            user = database.get_user_by_username(sso_user.strip())
-            if user and user.get("role") == "admin":
-                return {
-                    "id": user["id"],
-                    "username": user["username"],
-                    "display_name": user["display_name"] or user["username"],
-                    "role": "admin",
-                    "is_lan_guest": False,
-                    "auth_type": "sso"
-                }
-            elif not user:
-                return {
-                    "id": f"sso_{sso_user.strip()}",
-                    "username": sso_user.strip(),
-                    "display_name": sso_user.strip(),
-                    "role": "admin",
-                    "is_lan_guest": False,
-                    "auth_type": "sso"
-                }
+    # 2. Reverse-Proxy SSO Headers (Authentik, Authelia, Cloudflare Access)
+    sso_identity = _resolve_sso_identity(require_admin_role=False)
+    if sso_identity:
+        return sso_identity if sso_identity.get("role") == "admin" else None
 
     # 3. Local Session Cookie (Must have role == 'admin')
     user_id = session.get("user_id")

@@ -108,6 +108,9 @@ def get_profiles():
             "display_name": pdata.get("display_name", pid.title()),
             "avatar_url": avatar,
             "has_custom_avatar": has_custom,
+            "avatar_color": pdata.get("avatar_color", ""),
+            "avatar_initial": pdata.get("avatar_initial", ""),
+            "default_playback_mode": pdata.get("default_playback_mode", "streaming"),
             "default_player_id": pdata.get("default_player_id", ""),
             "player_ids": pdata.get("player_ids", [])
         })

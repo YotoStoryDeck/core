@@ -1,84 +1,191 @@
 :root {
-  --portal-max-w: 680px;
+  --portal-max-w: 1020px;
 }
 body {
   background: var(--bg-base);
   color: var(--text-primary);
-  padding-bottom: 76px; /* space for bottom nav */
   overflow-x: hidden;
 }
 .portal-container {
   max-width: var(--portal-max-w);
+  width: 100%;
   margin: 0 auto;
-  padding: 12px 16px;
+  padding: 20px 24px 40px;
 }
-/* Top Header */
-.portal-header {
+
+/* Quick Context Bar: Profile Avatar Carousel + Paired Target Player */
+.portal-context-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 18px;
+  align-items: center;
+  box-shadow: var(--shadow-sm);
+}
+.profile-carousel-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.context-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-subtle);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.portal-brand {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--text-primary);
-  text-decoration: none;
 }
-.portal-header-actions {
+.context-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.context-meta-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-info);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.profile-carousel {
   display: flex;
   align-items: center;
   gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
 }
-/* Bottom Navigation Bar */
-.bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 64px;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  z-index: 100;
-  backdrop-filter: blur(12px);
+.profile-carousel::-webkit-scrollbar {
+  height: 5px;
 }
-.nav-item {
+.profile-carousel::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 999px;
+}
+.profile-avatar-chip {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  gap: 6px;
+  min-width: 72px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-elevated);
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
   cursor: pointer;
-  text-decoration: none;
-  flex: 1;
+  transition: transform 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.profile-avatar-chip:hover {
+  transform: translateY(-1px);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.profile-avatar-chip.active {
+  background: rgba(229, 53, 43, 0.14);
+  border-color: var(--accent-yoto);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 2px rgba(229, 53, 43, 0.25);
+}
+.profile-avatar-ring {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background: var(--bg-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.profile-avatar-chip.active .profile-avatar-ring {
+  border-color: var(--accent-yoto);
+}
+.profile-avatar-img {
+  width: 100%;
   height: 100%;
-  transition: all 0.15s ease;
-  user-select: none;
+  object-fit: cover;
+  display: block;
 }
-.nav-item .nav-icon {
-  font-size: 19px;
-  line-height: 1;
+.profile-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-family-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: uppercase;
 }
-.nav-item.active {
-  color: var(--accent-yoto);
+.profile-avatar-all-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
 }
-.nav-item.active .nav-icon {
-  transform: scale(1.1);
+.profile-avatar-name {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.target-player-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 18px;
+  border-left: 1px solid var(--border-subtle);
+}
+.target-player-panel select {
+  width: 100%;
+  height: 40px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .portal-container {
+    padding: 14px 12px 32px;
+  }
+  .portal-context-bar {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+  .target-player-panel {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .profile-avatar-chip {
+    min-width: 64px;
+    padding: 6px 8px;
+  }
+  .profile-avatar-ring {
+    width: 42px;
+    height: 42px;
+  }
+}
+
 /* Tab Views */
 .tab-view {
   display: none;
@@ -92,6 +199,12 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 /* Player Tab Styles */
+.player-card,
+#continueListeningSection {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
 .player-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -99,7 +212,7 @@ body {
   padding: 20px;
   text-align: center;
   box-shadow: var(--shadow-md);
-  margin-top: 10px;
+  margin-top: 4px;
 }
 .player-cover {
   width: 220px;
@@ -414,14 +527,14 @@ body {
 body.yoto-auth-locked .tab-view {
   display: none !important;
 }
-body.yoto-auth-locked .bottom-nav {
-  opacity: 0.3;
-  pointer-events: none;
-  filter: grayscale(1);
-}
-body.yoto-auth-locked #headerProfileSelect {
+body.yoto-auth-locked .portal-context-bar {
   opacity: 0.4;
   pointer-events: none;
+}
+body.yoto-auth-locked .sidebar-nav-item[data-tab] {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(1);
 }
 .yoto-blocked-card {
   background: var(--bg-surface);

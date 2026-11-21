@@ -31,13 +31,37 @@ async function loadDevices() {
       activeDeviceId = currentDevices[0].deviceId || currentDevices[0].id;
     }
     select.value = activeDeviceId;
+    updatePlayerContextBadges();
   } catch (err) {
     console.error("Failed to load devices:", err);
   }
 }
 
+function updatePlayerContextBadges() {
+  const badge = document.getElementById("playerContextStatusBadge");
+  if (!badge) return;
+
+  const dev = currentDevices.find(d => (d.deviceId || d.id) === activeDeviceId);
+  if (!dev) {
+    badge.className = "badge badge-subtle";
+    badge.innerText = currentDevices.length ? "Select Player" : "No Players";
+    return;
+  }
+
+  const activeProf = currentProfiles[activeProfileId];
+  const isProfDefault = Boolean(activeProf && activeProf.default_player_id && activeProf.default_player_id === (dev.deviceId || dev.id));
+  if (dev.online) {
+    badge.className = "badge badge-success";
+    badge.innerText = isProfDefault ? "Online · Default" : "Online";
+  } else {
+    badge.className = "badge badge-subtle";
+    badge.innerText = isProfDefault ? "Offline · Default" : "Offline";
+  }
+}
+
 function onPlayerDeviceChange(deviceId) {
   activeDeviceId = deviceId;
+  updatePlayerContextBadges();
   pollPlayerStatus();
 }
 
@@ -51,8 +75,13 @@ let currentPosition = 0;
 
 async function pollPlayerStatus() {
   if (!activeDeviceId) return;
+  if (window.StoryDeckHealth && window.StoryDeckHealth.isOffline()) return;
   try {
-    const res = await fetch(`/api/player/status/${activeDeviceId}`);
+    const res = await fetch(`/api/player/status/${activeDeviceId}`, { cache: "no-store" });
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      if (window.StoryDeckHealth) window.StoryDeckHealth.reportNetworkError(`HTTP ${res.status}`);
+      return;
+    }
     if (!res.ok) return;
     const data = await res.json();
 
@@ -190,8 +219,11 @@ async function pollPlayerStatus() {
       const volSlider = document.getElementById("playerVolumeSlider");
       updateVolumeSliderUI(volSlider ? volSlider.value : 50, maxVol);
     }
+    updatePlayerContextBadges();
   } catch (err) {
-    // Poll notice
+    if (window.StoryDeckHealth) {
+      window.StoryDeckHealth.reportNetworkError("Lost connection while polling player status.");
+    }
   }
 }
 

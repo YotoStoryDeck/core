@@ -1,0 +1,250 @@
+<!-- Tab 4: Users, Access Control & SSO Integration -->
+    <section class="tab-content" id="tab-users">
+      <div class="section-toolbar">
+        <div>
+          <h2>Users &amp; Access Control</h2>
+          <p class="text-secondary">Manage household user accounts, LAN sitter access, and reverse-proxy SSO / Authentik integration.</p>
+        </div>
+        <div class="toolbar-actions">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="loadUsersPage()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Strip -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Household Accounts</span>
+          <span class="kpi-value" id="kpiTotalUsers">--</span>
+          <span class="kpi-sub" id="kpiUsersBreakdown">Loading accounts...</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Active Admin Session</span>
+          <span class="kpi-value" id="kpiActiveAuthMethod">--</span>
+          <span class="kpi-sub" id="kpiActiveAuthSub">Verifying auth source...</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">LAN Guest Access</span>
+          <span class="kpi-value" id="kpiLanGuestStatus">--</span>
+          <span class="kpi-sub" id="kpiLanGuestSub">Home Wi-Fi portal access</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">SSO / Identity Provider</span>
+          <span class="kpi-value" id="kpiSsoStatus">--</span>
+          <span class="kpi-sub" id="kpiSsoSub">ForwardAuth &amp; OIDC status</span>
+        </div>
+      </div>
+
+      <!-- Household User Accounts & Role Management Card -->
+      <div class="card settings-card" id="cardUserAccounts">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">👥 Household User Accounts &amp; Roles</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Manage local parent/admin and sitter/member accounts, or pre-link identities managed by SSO (Authentik).</p>
+          </div>
+          <span class="badge badge-subtle" id="userCountBadge">0 Accounts</span>
+        </div>
+
+        <div style="overflow-x: auto; margin-bottom: 18px;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border-subtle); text-align: left; color: var(--text-secondary);">
+                <th style="padding: 10px 12px;">Username</th>
+                <th style="padding: 10px 12px;">Display Name</th>
+                <th style="padding: 10px 12px;">Auth Source</th>
+                <th style="padding: 10px 12px;">Role</th>
+                <th style="padding: 10px 12px;">Last Login</th>
+                <th style="padding: 10px 12px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersTableBody">
+              <tr><td colspan="6" style="padding: 14px; color: var(--text-secondary);">Loading accounts...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+          <strong style="display: block; font-size: 13px; margin-bottom: 10px; color: var(--text-primary);">➕ Add Household User</strong>
+          <form id="createHouseholdUserForm" onsubmit="event.preventDefault(); createNewHouseholdUser();" style="margin: 0; padding: 0;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end;">
+              <div>
+                <label for="newAdminUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username</label>
+                <input type="text" id="newAdminUsername" class="form-control" placeholder="e.g. sitter or jane" autocomplete="off" required>
+              </div>
+              <div>
+                <label for="newAdminDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name</label>
+                <input type="text" id="newAdminDisplayName" class="form-control" placeholder="e.g. Grandma / Sitter" autocomplete="off">
+              </div>
+              <div>
+                <label for="newAdminRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Role</label>
+                <select id="newAdminRole" class="form-control">
+                  <option value="member">Member (Portal Only)</option>
+                  <option value="admin">Admin (Full Console)</option>
+                </select>
+              </div>
+              <div>
+                <label for="newAdminAuthSource" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Auth Source</label>
+                <select id="newAdminAuthSource" class="form-control" onchange="onNewUserAuthSourceChange()">
+                  <option value="">Local Password</option>
+                  <option value="authentik">SSO / Authentik Link</option>
+                </select>
+              </div>
+              <div>
+                <label for="newAdminPassword" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Password</label>
+                <input type="password" id="newAdminPassword" class="form-control" placeholder="Min 8 chars" autocomplete="new-password">
+              </div>
+              <div>
+                <button type="submit" class="btn btn-primary btn-sm" style="width: 100%; height: 38px;">+ Create Account</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Trusted Local Network (LAN) / Babysitter Guest Policy Card -->
+      <div class="card settings-card" id="cardLanAccess">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+          <div style="max-width: 660px;">
+            <h3 style="margin-bottom: 4px;">🏠 Local Network (LAN) &amp; Babysitter Guest Access</h3>
+            <p class="text-secondary" style="font-size: 13px; margin: 0; line-height: 1.5;">
+              When enabled, devices on your private home Wi-Fi / RFC1918 LAN can open the Parent Portal (<code>/</code>) and Wall Kiosk (<code>/kiosk</code>) with <code>member</code> access without signing in. The Admin Console (<code>/admin</code>) and all remote WAN traffic always enforce authentication.
+            </p>
+          </div>
+          <label class="toggle-control" title="Enable or disable passwordless LAN Portal guest access">
+            <input type="checkbox" id="toggleLanSitterAccess" onchange="saveLanSitterToggle()">
+            <span class="toggle-slider"></span>
+            <span style="font-size: 13px; font-weight: 600;" id="lanSitterToggleLabel">Enabled</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- SSO & Reverse Proxy / Authentik Future-Proof Integration Card -->
+      <div class="card settings-card" id="cardSsoConfig">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Reverse Proxy)</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Configure trusted reverse-proxy ForwardAuth headers today and prepare OIDC settings for direct Identity Provider integration.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
+            <span class="badge badge-subtle" id="ssoConfigStatusBadge">ForwardAuth</span>
+          </div>
+        </div>
+
+        <form id="ssoConfigForm" onsubmit="event.preventDefault(); saveSsoConfig();">
+          <!-- ForwardAuth Section -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+              <div>
+                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Reverse-Proxy ForwardAuth (Authentik / NPM / Cloudflare)</strong>
+                <span class="text-secondary" style="font-size: 12px;">Trust identity headers asserted by proxies matching <code>TRUSTED_PROXIES</code>.</span>
+              </div>
+              <label class="toggle-control">
+                <input type="checkbox" id="ssoForwardAuthEnabled">
+                <span class="toggle-slider"></span>
+                <span style="font-size: 12px; font-weight: 600;">Active</span>
+              </label>
+            </div>
+
+            <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; font-size: 12px;">
+              <strong style="color: #93c5fd;">Active Env Trusted Proxies (<code>TRUSTED_PROXIES</code>):</strong>
+              <code id="ssoEnvTrustedProxies" style="margin-left: 6px; color: var(--text-primary);">127.0.0.1/32</code>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px;">
+              <div>
+                <label for="ssoProviderName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Identity Provider Name</label>
+                <select id="ssoProviderName" class="form-control">
+                  <option value="Authentik">Authentik</option>
+                  <option value="Authelia">Authelia</option>
+                  <option value="Cloudflare Access">Cloudflare Access</option>
+                  <option value="Reverse Proxy">Generic ForwardAuth</option>
+                </select>
+              </div>
+              <div>
+                <label for="ssoDefaultRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Unmapped SSO User Role</label>
+                <select id="ssoDefaultRole" class="form-control">
+                  <option value="admin">Admin (Full Console)</option>
+                  <option value="member">Member (Parent Portal Only)</option>
+                </select>
+              </div>
+              <div>
+                <label for="ssoAdminGroup" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Admin Group Name (Optional)</label>
+                <input type="text" id="ssoAdminGroup" class="form-control" placeholder="e.g. storydeck-admins">
+              </div>
+              <div>
+                <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
+                <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
+              </div>
+              <div>
+                <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
+                <input type="text" id="ssoHeaderDisplayName" class="form-control" placeholder="X-authentik-name">
+              </div>
+              <div>
+                <label for="ssoHeaderGroups" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Groups Header</label>
+                <input type="text" id="ssoHeaderGroups" class="form-control" placeholder="X-authentik-groups">
+              </div>
+              <div>
+                <label for="ssoExtraTrustedProxies" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Additional Trusted Proxy IPs / CIDRs</label>
+                <input type="text" id="ssoExtraTrustedProxies" class="form-control" placeholder="e.g. 192.168.1.9, 172.18.0.0/16">
+              </div>
+              <div>
+                <label for="ssoLogoutUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">SSO Logout Redirect URL (Optional)</label>
+                <input type="text" id="ssoLogoutUrl" class="form-control" placeholder="https://auth.example.com/application/o/.../end-session/">
+              </div>
+            </div>
+
+            <div style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+              <div>
+                <strong style="font-size: 13px; color: var(--text-primary);">Auto-Provision First-Time SSO Users</strong>
+                <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">Automatically persist unknown verified SSO logins into the Household Accounts table above with their resolved role.</p>
+              </div>
+              <label class="toggle-control">
+                <input type="checkbox" id="ssoAutoProvisionUsers">
+                <span class="toggle-slider"></span>
+                <span style="font-size: 12px;">Auto-Provision</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Future-Proof Native OIDC Subsection -->
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+              <div>
+                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Native OIDC / OAuth2 Client Settings <span class="badge badge-info" style="margin-left: 6px;">Future Ready</span></strong>
+                <span class="text-secondary" style="font-size: 12px;">Pre-configure Authentik OIDC discovery parameters and redirect URI alongside ForwardAuth.</span>
+              </div>
+              <label class="toggle-control">
+                <input type="checkbox" id="ssoOidcEnabled">
+                <span class="toggle-slider"></span>
+                <span style="font-size: 12px; font-weight: 600;">Mark Ready</span>
+              </label>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+              <div>
+                <label for="ssoOidcIssuerUrl" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Issuer / Discovery URL</label>
+                <input type="text" id="ssoOidcIssuerUrl" class="form-control" placeholder="https://auth.example.com/application/o/storydeck/">
+              </div>
+              <div>
+                <label for="ssoOidcClientId" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client ID</label>
+                <input type="text" id="ssoOidcClientId" class="form-control" placeholder="storydeck-core-client" autocomplete="off">
+              </div>
+              <div>
+                <label for="ssoOidcClientSecret" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">OIDC Client Secret</label>
+                <input type="password" id="ssoOidcClientSecret" class="form-control" placeholder="Optional client secret" autocomplete="new-password">
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label for="ssoOidcCallbackUri" style="font-size: 11px; color: var(--text-secondary); font-weight: 600;">Reserved Callback URI:</label>
+              <input type="text" id="ssoOidcCallbackUri" class="form-control" readonly style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.28);">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="copyOidcCallbackUri()">📋 Copy URI</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px;">
+            <button type="submit" class="btn btn-primary" id="btnSaveSsoConfig">💾 Save Access &amp; SSO Settings</button>
+          </div>
+        </form>
+      </div>
+    </section>

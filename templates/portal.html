@@ -5,57 +5,150 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StoryDeck • Parent Portal</title>
   <link rel="icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_03">
-  <link rel="stylesheet" href="/static/css/portal.css?v=20261120_04">
+  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_05">
+  <link rel="stylesheet" href="/static/css/portal.css?v=20261120_05">
 </head>
 <body class="dark-theme">
 
-  <!-- Header -->
-  <header class="portal-header">
-    <a href="/" class="portal-brand">
-      <span>📻</span>
-      <span>StoryDeck</span>
-    </a>
-    <div class="portal-header-actions">
-      <!-- Live Yoto API Token Health Indicator -->
-      <a id="yotoAuthStatusPill" href="/admin" class="yoto-status-pill checking" title="Yoto API Token Status">⏳ Yoto</a>
-      <!-- Child Profile Dropdown -->
-      <select id="headerProfileSelect" class="form-control" style="font-size: 12px; padding: 4px 8px; height: 32px;" onchange="switchActiveProfile(this.value)">
-        <!-- Populated via JS -->
-      </select>
-      <a href="/admin" class="btn btn-secondary btn-sm" style="font-size: 12px; padding: 4px 10px;">⚙️ Admin</a>
+  <!-- Core / Broker Offline Awareness Banner -->
+  <div id="coreOfflineBanner" class="core-offline-banner" role="alert" style="display: none;">
+    <div class="core-offline-banner-info">
+      <span style="font-size: 20px;">📡</span>
+      <div style="min-width: 0;">
+        <div class="core-offline-banner-title">StoryDeck Core Offline</div>
+        <div class="core-offline-banner-reason" id="coreOfflineReason">Cannot reach StoryDeck Core server. Waiting for connection...</div>
+      </div>
     </div>
-  </header>
+    <button type="button" id="btnRetryCoreHealth" class="btn btn-danger btn-sm" onclick="window.StoryDeckHealth && StoryDeckHealth.checkNow(true)">🔄 Retry Now</button>
+  </div>
 
-  <main class="portal-container">
+  <div class="app-shell">
+    <div class="sidebar-backdrop" onclick="closeMobileSidebar()"></div>
 
-    <!-- Yoto Token Lockout Banner (shown & blanks all portal features when token does not resolve) -->
-    <section id="yotoAuthBlockedView" class="yoto-blocked-card" style="display: none;">
-      <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
-      <h2 style="font-size: 18px; color: #f87171; margin: 0 0 8px 0;">Yoto API Token Not Resolving</h2>
-      <p class="text-secondary" style="font-size: 13px; line-height: 1.5; margin: 0 0 14px 0;">
-        Yoto player controls, audiobook playback, NFC card assignments, and cloud playlists are disabled because your Yoto API token is missing, expired, or invalid.
-      </p>
-      <div id="yotoAuthErrorDetail" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 10px 12px; font-size: 12px; font-family: monospace; color: #fecaca; margin-bottom: 18px; word-break: break-word;">
-        Checking Yoto API token...
-      </div>
-      <a href="/admin" class="btn btn-primary" style="width: 100%; display: block; text-decoration: none; margin-bottom: 8px;">🔗 Reconnect Yoto in Admin Settings</a>
-      <button type="button" id="btnRetryYotoAuth" class="btn btn-secondary" style="width: 100%;" onclick="checkYotoAuthStatus(true)">🔄 Retry Yoto Connection</button>
-    </section>
-
-    <!-- ===================================================================== -->
-    <!-- TAB 1: PLAYER                                                         -->
-    <!-- ===================================================================== -->
-    <section id="tabPlayer" class="tab-view active">
-      <!-- Hardware Device Selector -->
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px;">
-        <span style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Target Yoto Player</span>
-        <select id="playerDeviceSelect" class="form-control" style="font-size: 12px; padding: 4px 8px; width: auto; max-width: 220px;" onchange="onPlayerDeviceChange(this.value)">
-          <option value="">Detecting Yoto Devices...</option>
-        </select>
+    <!-- Collapsible Side Navigation -->
+    <aside class="app-sidebar" id="appSidebar" aria-label="Parent Portal Navigation">
+      <div class="sidebar-header">
+        <a href="/" class="sidebar-brand">
+          <div class="sidebar-brand-icon">📻</div>
+          <div class="sidebar-brand-text">
+            <span class="sidebar-brand-title">StoryDeck</span>
+            <span class="sidebar-brand-sub">Parent Portal</span>
+          </div>
+        </a>
+        <button type="button" id="sidebarCollapseBtn" class="sidebar-icon-btn sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse menu" aria-expanded="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <button type="button" id="sidebarMobileCloseBtn" class="sidebar-icon-btn sidebar-mobile-close-btn" onclick="closeMobileSidebar()" title="Close menu" aria-label="Close navigation menu">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
       </div>
 
-      <!-- Player Console -->
+      <nav class="sidebar-nav">
+        <div class="sidebar-section-label">Portal</div>
+        <button type="button" class="sidebar-nav-item active" id="navTabPlayer" data-tab="player" title="Player" onclick="switchTab('player')">
+          <span class="sidebar-icon">▶️</span>
+          <span class="sidebar-label">Player</span>
+        </button>
+        <button type="button" class="sidebar-nav-item" id="navTabLibrary" data-tab="library" title="Library" onclick="switchTab('library')">
+          <span class="sidebar-icon">📚</span>
+          <span class="sidebar-label">Library</span>
+        </button>
+        <button type="button" class="sidebar-nav-item" id="navTabCards" data-tab="cards" title="Cards" onclick="switchTab('cards')">
+          <span class="sidebar-icon">💳</span>
+          <span class="sidebar-label">Cards</span>
+        </button>
+        <button type="button" class="sidebar-nav-item" id="navTabPlaylists" data-tab="playlists" title="Playlists" onclick="switchTab('playlists')">
+          <span class="sidebar-icon">☁️</span>
+          <span class="sidebar-label">Playlists</span>
+        </button>
+
+        <div class="sidebar-section-label">Switch Portal</div>
+        <a href="/admin" class="sidebar-nav-item sidebar-nav-link" id="navLinkAdmin" title="Admin Portal">
+          <span class="sidebar-icon">⚙️</span>
+          <span class="sidebar-label">Admin Portal</span>
+          <span class="sidebar-link-arrow">↗</span>
+        </a>
+        <a href="/kiosk" class="sidebar-nav-item sidebar-nav-link" id="navLinkKiosk" title="Wall Kiosk">
+          <span class="sidebar-icon">🖥️</span>
+          <span class="sidebar-label">Wall Kiosk</span>
+          <span class="sidebar-link-arrow">↗</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-card">
+          <span class="sidebar-footer-dot online"></span>
+          <div class="sidebar-footer-details" id="portalSidebarUser">
+            <span class="sidebar-footer-name" id="sidebarUserName">Household Access</span>
+            <span class="sidebar-footer-role" id="sidebarUserRole">Connected</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Column -->
+    <div class="app-shell-main">
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <button type="button" id="sidebarMobileToggle" class="mobile-menu-btn" onclick="toggleMobileSidebar()" title="Open menu" aria-label="Open navigation menu">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <h2 id="portalPageTitle" class="topbar-page-title">Player</h2>
+        </div>
+        <div class="topbar-right">
+          <button type="button" id="coreConnectionPill" class="core-status-pill online" onclick="window.StoryDeckHealth && StoryDeckHealth.checkNow(true)" title="StoryDeck Core Server Health">
+            <span class="core-status-dot"></span>
+            <span class="core-status-text">Core Online</span>
+          </button>
+          <a id="yotoAuthStatusPill" href="/admin#settings" class="yoto-status-pill checking" title="Yoto API Token Status">⏳ Yoto</a>
+          <span id="portalUserBadge" class="badge badge-subtle" style="display: none;"></span>
+        </div>
+      </header>
+
+      <main class="portal-container">
+
+        <!-- Yoto Token Lockout Banner (shown & blanks all portal features when token does not resolve) -->
+        <section id="yotoAuthBlockedView" class="yoto-blocked-card" style="display: none;">
+          <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
+          <h2 style="font-size: 18px; color: #f87171; margin: 0 0 8px 0;">Yoto API Token Not Resolving</h2>
+          <p class="text-secondary" style="font-size: 13px; line-height: 1.5; margin: 0 0 14px 0;">
+            Yoto player controls, audiobook playback, NFC card assignments, and cloud playlists are disabled because your Yoto API token is missing, expired, or invalid.
+          </p>
+          <div id="yotoAuthErrorDetail" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 10px 12px; font-size: 12px; font-family: monospace; color: #fecaca; margin-bottom: 18px; word-break: break-word;">
+            Checking Yoto API token...
+          </div>
+          <a href="/admin#settings" class="btn btn-primary" style="width: 100%; display: block; text-decoration: none; margin-bottom: 8px;">🔗 Reconnect Yoto in Admin Settings</a>
+          <button type="button" id="btnRetryYotoAuth" class="btn btn-secondary" style="width: 100%;" onclick="checkYotoAuthStatus(true)">🔄 Retry Yoto Connection</button>
+        </section>
+
+        <!-- Paired Quick Context Strip: Child Avatar Carousel + Target Yoto Player -->
+        <section id="portalContextBar" class="portal-context-bar" aria-label="Active Child and Target Player">
+          <div class="profile-carousel-panel">
+            <div class="context-header-row">
+              <span class="context-label">Active Profile</span>
+              <span id="activeProfileSummaryLabel" class="context-meta-pill">Loading...</span>
+            </div>
+            <div id="profileAvatarCarousel" class="profile-carousel" role="listbox" aria-label="Child Profile Switcher">
+              <!-- Avatar image tiles rendered by portal/core.js -->
+            </div>
+          </div>
+
+          <div class="target-player-panel">
+            <div class="context-header-row">
+              <label for="playerDeviceSelect" class="context-label">Target Yoto Player</label>
+              <span id="playerContextStatusBadge" class="badge badge-subtle">...</span>
+            </div>
+            <select id="playerDeviceSelect" class="form-control" onchange="onPlayerDeviceChange(this.value)">
+              <option value="">Detecting Yoto Devices...</option>
+            </select>
+          </div>
+        </section>
+
+        <!-- ===================================================================== -->
+        <!-- TAB 1: PLAYER                                                         -->
+        <!-- ===================================================================== -->
+        <section id="tabPlayer" class="tab-view active">
+          <!-- Player Console -->
       <div class="player-card">
         <div class="player-cover">
           <img id="playerCoverImg" src="/static/img/placeholder.png" alt="Cover">
@@ -210,7 +303,9 @@
       </div>
     </section>
 
-  </main>
+      </main>
+    </div>
+  </div>
 
   <!-- ======================================================================= -->
   <!-- MODALS                                                                  -->
@@ -314,31 +409,13 @@
     </div>
   </div>
 
-  <!-- Bottom Navigation -->
-  <nav class="bottom-nav">
-    <div class="nav-item active" onclick="switchTab('player')" id="navTabPlayer">
-      <span class="nav-icon">▶️</span>
-      <span>Player</span>
-    </div>
-    <div class="nav-item" onclick="switchTab('library')" id="navTabLibrary">
-      <span class="nav-icon">📚</span>
-      <span>Library</span>
-    </div>
-    <div class="nav-item" onclick="switchTab('cards')" id="navTabCards">
-      <span class="nav-icon">💳</span>
-      <span>Cards</span>
-    </div>
-    <div class="nav-item" onclick="switchTab('playlists')" id="navTabPlaylists">
-      <span class="nav-icon">☁️</span>
-      <span>Playlists</span>
-    </div>
-  </nav>
-
-  <!-- Portal Frontend Logic -->
-  <script src="/static/js/portal/core.js?v=20261120_03"></script>
-  <script src="/static/js/portal/player.js?v=20261120_04"></script>
-  <script src="/static/js/portal/library.js?v=20261120_03"></script>
-  <script src="/static/js/portal/cards.js?v=20261120_03"></script>
-  <script src="/static/js/portal/playlists.js?v=20261120_03"></script>
+  <!-- Shared Shell & Portal Frontend Logic -->
+  <script src="/static/js/sidebar.js?v=20261120_05"></script>
+  <script src="/static/js/core_health.js?v=20261120_05"></script>
+  <script src="/static/js/portal/core.js?v=20261120_05"></script>
+  <script src="/static/js/portal/player.js?v=20261120_05"></script>
+  <script src="/static/js/portal/library.js?v=20261120_05"></script>
+  <script src="/static/js/portal/cards.js?v=20261120_05"></script>
+  <script src="/static/js/portal/playlists.js?v=20261120_05"></script>
 </body>
 </html>

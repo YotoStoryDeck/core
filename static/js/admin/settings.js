@@ -58,7 +58,7 @@ let settingsBaseline = {
   abs: { url: "", key: "" },
   tinker: { key: "" },
   ai: { key: "" },
-  preferences: { exclude: true, refresh_enabled: true, refresh_hours: "6", lan_sitter: true }
+  preferences: { exclude: true, refresh_enabled: true, refresh_hours: "6" }
 };
 
 function snapshotBaseline(section) {
@@ -88,8 +88,7 @@ function snapshotBaseline(section) {
     settingsBaseline.preferences = {
       exclude: document.getElementById("toggleExcludeSingleSeries")?.checked ?? true,
       refresh_enabled: document.getElementById("toggleAutoLibraryRefresh")?.checked ?? true,
-      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6"),
-      lan_sitter: document.getElementById("toggleLanSitterAccess")?.checked ?? true
+      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6")
     };
   }
 }
@@ -141,11 +140,10 @@ function checkDirty(section) {
     const cur = {
       exclude: document.getElementById("toggleExcludeSingleSeries")?.checked ?? true,
       refresh_enabled: document.getElementById("toggleAutoLibraryRefresh")?.checked ?? true,
-      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6"),
-      lan_sitter: document.getElementById("toggleLanSitterAccess")?.checked ?? true
+      refresh_hours: String(document.getElementById("autoLibraryRefreshHours")?.value || "6")
     };
     const b = settingsBaseline.preferences;
-    const dirty = cur.exclude !== b.exclude || cur.refresh_enabled !== b.refresh_enabled || cur.refresh_hours !== b.refresh_hours || cur.lan_sitter !== b.lan_sitter;
+    const dirty = cur.exclude !== b.exclude || cur.refresh_enabled !== b.refresh_enabled || cur.refresh_hours !== b.refresh_hours;
     setSectionDirty("preferences", dirty);
   }
 }
@@ -176,7 +174,7 @@ function setupSettingsDirtyListeners() {
   bindSection(["credAbsUrl", "credAbsKey"], "abs", true);
   bindSection(["credTinkerKey"], "tinker", true);
   bindSection(["credOpenRouterKey"], "ai", true);
-  bindSection(["toggleExcludeSingleSeries", "toggleAutoLibraryRefresh", "autoLibraryRefreshHours", "toggleLanSitterAccess"], "preferences", false);
+  bindSection(["toggleExcludeSingleSeries", "toggleAutoLibraryRefresh", "autoLibraryRefreshHours"], "preferences", false);
 }
 
 async function loadApiCredentials() {
@@ -204,7 +202,6 @@ async function loadApiCredentials() {
     }
 
     await loadMasterApiKey();
-    await loadHouseholdUsers();
     await loadCatalogSettings();
     await loadAbsDefaultTags();
     await fetchAbsServerTags();
@@ -238,11 +235,6 @@ async function loadCatalogSettings() {
     const selectHours = document.getElementById("autoLibraryRefreshHours");
     if (selectHours && data.auto_library_refresh_hours !== undefined) {
       selectHours.value = String(data.auto_library_refresh_hours);
-    }
-
-    const toggleLanSitter = document.getElementById("toggleLanSitterAccess");
-    if (toggleLanSitter && data.lan_sitter_access_enabled !== undefined) {
-      toggleLanSitter.checked = Boolean(data.lan_sitter_access_enabled);
     }
 
     onAutoRefreshToggleChange();
@@ -288,7 +280,6 @@ async function savePreferencesSettings() {
   const excludeVal = document.getElementById("toggleExcludeSingleSeries")?.checked ?? true;
   const refreshEnabled = document.getElementById("toggleAutoLibraryRefresh")?.checked ?? true;
   const refreshHours = parseFloat(document.getElementById("autoLibraryRefreshHours")?.value || "6.0");
-  const lanSitterEnabled = document.getElementById("toggleLanSitterAccess")?.checked ?? true;
 
   try {
     const res = await fetch("/api/admin/settings/catalog", {
@@ -297,8 +288,7 @@ async function savePreferencesSettings() {
       body: JSON.stringify({
         exclude_single_card_series: excludeVal,
         auto_library_refresh_enabled: refreshEnabled,
-        auto_library_refresh_hours: refreshHours,
-        lan_sitter_access_enabled: lanSitterEnabled
+        auto_library_refresh_hours: refreshHours
       })
     });
     const data = await res.json();

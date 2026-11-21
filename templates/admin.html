@@ -4,30 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StoryDeck Core Admin</title>
-  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_03">
+  <link rel="stylesheet" href="/static/css/admin.css?v=20261120_05">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body class="dark-theme">
-  <!-- Top Navigation Bar -->
-  <header class="app-header">
-    <div class="header-brand">
-      <div class="brand-logo">📻</div>
-      <div class="brand-text">
-        <h1>StoryDeck Core</h1>
-        <span class="badge badge-subtle">Admin Portal</span>
-        <span class="badge badge-version" id="coreVersionBadge" style="cursor: pointer;" onclick="switchTab('settings')" title="StoryDeck Core Version">v...</span>
-      </div>
-    </div>
-    <div class="header-user" id="headerUserSection" style="display: none;">
-      <span class="user-greeting" id="userGreeting">Welcome, Admin</span>
-      <button class="btn btn-secondary btn-sm" id="logoutBtn" onclick="logout()">Sign Out</button>
-    </div>
-  </header>
-
   <!-- Notification Toast Container -->
   <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Core / Broker Offline Awareness Banner (works even before login) -->
+  <div id="coreOfflineBanner" class="core-offline-banner" role="alert" style="display: none;">
+    <div class="core-offline-banner-info">
+      <span style="font-size: 20px;">📡</span>
+      <div style="min-width: 0;">
+        <div class="core-offline-banner-title">StoryDeck Core Offline</div>
+        <div class="core-offline-banner-reason" id="coreOfflineReason">Cannot reach StoryDeck Core server. Waiting for connection...</div>
+      </div>
+    </div>
+    <button type="button" id="btnRetryCoreHealth" class="btn btn-danger btn-sm" onclick="window.StoryDeckHealth && StoryDeckHealth.checkNow(true)">🔄 Retry Now</button>
+  </div>
 
   <!-- Modal Overlays -->
   {% include 'admin/_modal_auth.html' %}
@@ -42,39 +38,128 @@
   {% include 'admin/_modal_edit_device.html' %}
   {% include 'admin/_modal_firmware.html' %}
 
-  <!-- Main Application Container -->
-  <main class="app-main" id="mainApp" style="display: none;">
-    <div class="dashboard-tabs">
-      <button class="tab-btn active" data-tab="profiles" onclick="switchTab('profiles')">👶 Child Profiles</button>
-      <button class="tab-btn" data-tab="library" onclick="switchTab('library')">📚 Library</button>
-      <button class="tab-btn" data-tab="hardware" onclick="switchTab('hardware')">🖥️ Hardware Displays</button>
-      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings & Diagnostics</button>
-    </div>
+  <!-- Main Application Shell (shown after admin authentication) -->
+  <div id="mainApp" class="app-shell" style="display: none;">
+    <div class="sidebar-backdrop" onclick="closeMobileSidebar()"></div>
 
-    <!-- Tab Contents -->
-    {% include 'admin/_tab_profiles.html' %}
-    {% include 'admin/_tab_library.html' %}
-    {% include 'admin/_tab_hardware.html' %}
-    {% include 'admin/_tab_settings.html' %}
-  </main>
+    <!-- Collapsible Side Navigation -->
+    <aside class="app-sidebar" id="appSidebar" aria-label="Admin Console Navigation">
+      <div class="sidebar-header">
+        <a href="/admin#profiles" class="sidebar-brand" onclick="switchTab('profiles'); return false;">
+          <div class="sidebar-brand-icon">📻</div>
+          <div class="sidebar-brand-text">
+            <span class="sidebar-brand-title">StoryDeck Core</span>
+            <span class="sidebar-brand-sub">Admin Console</span>
+          </div>
+        </a>
+        <button type="button" id="sidebarCollapseBtn" class="sidebar-icon-btn sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse menu" aria-expanded="true">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+        <button type="button" id="sidebarMobileCloseBtn" class="sidebar-icon-btn sidebar-mobile-close-btn" onclick="closeMobileSidebar()" title="Close menu" aria-label="Close navigation menu">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="sidebar-section-label">Management</div>
+        <button type="button" class="sidebar-nav-item tab-btn active" data-tab="profiles" title="Child Profiles" onclick="switchTab('profiles')">
+          <span class="sidebar-icon">👶</span>
+          <span class="sidebar-label">Child Profiles</span>
+        </button>
+        <button type="button" class="sidebar-nav-item tab-btn" data-tab="library" title="Library" onclick="switchTab('library')">
+          <span class="sidebar-icon">📚</span>
+          <span class="sidebar-label">Library</span>
+        </button>
+        <button type="button" class="sidebar-nav-item tab-btn" data-tab="hardware" title="Hardware Displays" onclick="switchTab('hardware')">
+          <span class="sidebar-icon">🖥️</span>
+          <span class="sidebar-label">Hardware Displays</span>
+        </button>
+        <button type="button" class="sidebar-nav-item tab-btn" data-tab="users" title="Users & Access" onclick="switchTab('users')">
+          <span class="sidebar-icon">👥</span>
+          <span class="sidebar-label">Users &amp; Access</span>
+        </button>
+        <button type="button" class="sidebar-nav-item tab-btn" data-tab="settings" title="Settings & Diagnostics" onclick="switchTab('settings')">
+          <span class="sidebar-icon">⚙️</span>
+          <span class="sidebar-label">Settings &amp; Diagnostics</span>
+        </button>
+
+        <div class="sidebar-section-label">Switch Portal</div>
+        <a href="/" class="sidebar-nav-item sidebar-nav-link" id="navLinkPortal" title="Parent Portal">
+          <span class="sidebar-icon">▶️</span>
+          <span class="sidebar-label">Parent Portal</span>
+          <span class="sidebar-link-arrow">↗</span>
+        </a>
+        <a href="/kiosk" class="sidebar-nav-item sidebar-nav-link" id="navLinkKiosk" title="Wall Kiosk">
+          <span class="sidebar-icon">🎛️</span>
+          <span class="sidebar-label">Wall Kiosk</span>
+          <span class="sidebar-link-arrow">↗</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-card">
+          <span class="sidebar-footer-dot online"></span>
+          <div class="sidebar-footer-details" id="sidebarAdminIdentity">
+            <span class="sidebar-footer-name" id="sidebarAdminName">Administrator</span>
+            <span class="sidebar-footer-role" id="sidebarAdminRole">Authenticated</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Column -->
+    <div class="app-shell-main">
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <button type="button" id="sidebarMobileToggle" class="mobile-menu-btn" onclick="toggleMobileSidebar()" title="Open menu" aria-label="Open navigation menu">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <h2 id="adminPageTitle" class="topbar-page-title">Child Profiles</h2>
+        </div>
+        <div class="topbar-right">
+          <button type="button" id="coreConnectionPill" class="core-status-pill online" onclick="window.StoryDeckHealth && StoryDeckHealth.checkNow(true)" title="StoryDeck Core Server Health">
+            <span class="core-status-dot"></span>
+            <span class="core-status-text">Core Online</span>
+          </button>
+          <span class="badge badge-version" id="coreVersionBadge" style="cursor: pointer;" onclick="switchTab('settings')" title="StoryDeck Core Version">v...</span>
+          <div class="header-user" id="headerUserSection" style="display: none;">
+            <span class="badge badge-subtle" id="userAuthBadge" style="display: none;">Local</span>
+            <span class="user-greeting" id="userGreeting">Welcome, Admin</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="logoutBtn" onclick="logout()">Sign Out</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <!-- Tab Contents -->
+        {% include 'admin/_tab_profiles.html' %}
+        {% include 'admin/_tab_library.html' %}
+        {% include 'admin/_tab_hardware.html' %}
+        {% include 'admin/_tab_users.html' %}
+        {% include 'admin/_tab_settings.html' %}
+      </main>
+    </div>
+  </div>
 
   <!-- Modularized Application Scripts -->
-  <script src="/static/js/admin/core.js?v=20261120_03"></script>
-  <script src="/static/js/admin/nav.js?v=20261120_03"></script>
-  <script src="/static/js/admin/profile_avatars.js?v=20261120_03"></script>
-  <script src="/static/js/admin/profile_discovery.js?v=20261120_03"></script>
-  <script src="/static/js/admin/profiles.js?v=20261120_03"></script>
-  <script src="/static/js/admin/series.js?v=20261120_03"></script>
-  <script src="/static/js/admin/library.js?v=20261120_03"></script>
-  <script src="/static/js/admin/mass_edit.js?v=20261120_03"></script>
-  <script src="/static/js/admin/tracklist.js?v=20261120_03"></script>
-  <script src="/static/js/admin/icons.js?v=20261120_03"></script>
-  <script src="/static/js/admin/permissions.js?v=20261120_03"></script>
-  <script src="/static/js/admin/hardware.js?v=20261120_03"></script>
-  <script src="/static/js/admin/firmware.js?v=20261120_03"></script>
-  <script src="/static/js/admin/settings_security.js?v=20261120_03"></script>
-  <script src="/static/js/admin/settings_users.js?v=20261120_03"></script>
-  <script src="/static/js/admin/settings_oauth.js?v=20261120_03"></script>
-  <script src="/static/js/admin/settings.js?v=20261120_03"></script>
+  <script src="/static/js/sidebar.js?v=20261120_05"></script>
+  <script src="/static/js/core_health.js?v=20261120_05"></script>
+  <script src="/static/js/admin/core.js?v=20261120_05"></script>
+  <script src="/static/js/admin/nav.js?v=20261120_05"></script>
+  <script src="/static/js/admin/profile_avatars.js?v=20261120_05"></script>
+  <script src="/static/js/admin/profile_discovery.js?v=20261120_05"></script>
+  <script src="/static/js/admin/profiles.js?v=20261120_05"></script>
+  <script src="/static/js/admin/series.js?v=20261120_05"></script>
+  <script src="/static/js/admin/library.js?v=20261120_05"></script>
+  <script src="/static/js/admin/mass_edit.js?v=20261120_05"></script>
+  <script src="/static/js/admin/tracklist.js?v=20261120_05"></script>
+  <script src="/static/js/admin/icons.js?v=20261120_05"></script>
+  <script src="/static/js/admin/permissions.js?v=20261120_05"></script>
+  <script src="/static/js/admin/hardware.js?v=20261120_05"></script>
+  <script src="/static/js/admin/firmware.js?v=20261120_05"></script>
+  <script src="/static/js/admin/settings_security.js?v=20261120_05"></script>
+  <script src="/static/js/admin/settings_users.js?v=20261120_05"></script>
+  <script src="/static/js/admin/settings_oauth.js?v=20261120_05"></script>
+  <script src="/static/js/admin/settings.js?v=20261120_05"></script>
 </body>
 </html>

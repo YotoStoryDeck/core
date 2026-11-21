@@ -8,6 +8,23 @@ from typing import Dict, Any, List, Optional
 
 from .connection import get_db_connection, LEGACY_CONFIG_PATH, DB_PATH, logger
 
+DEFAULT_SSO_CONFIG: Dict[str, Any] = {
+    "forward_auth_enabled": True,
+    "provider_name": "Authentik",
+    "header_username": "X-authentik-username",
+    "header_display_name": "X-authentik-name",
+    "header_groups": "X-authentik-groups",
+    "admin_group": "",
+    "default_role": "admin",
+    "auto_provision_users": False,
+    "extra_trusted_proxies": [],
+    "logout_url": "",
+    "oidc_enabled": False,
+    "oidc_issuer_url": "",
+    "oidc_client_id": "",
+    "oidc_client_secret": "",
+}
+
 def get_system_settings() -> Dict[str, Any]:
     """Returns global broker settings."""
     conn = get_db_connection()
@@ -33,14 +50,23 @@ def get_system_settings() -> Dict[str, Any]:
             "ai_chapter_art": {
                 "enabled": False,
                 "provider": "openrouter"
-            }
+            },
+            "sso_config": dict(DEFAULT_SSO_CONFIG),
         }
         for k, v in defaults.items():
             if k not in res:
                 res[k] = v
+        merged_sso = dict(DEFAULT_SSO_CONFIG)
+        if isinstance(res.get("sso_config"), dict):
+            merged_sso.update(res["sso_config"])
+        res["sso_config"] = merged_sso
         return res
     finally:
         conn.close()
+
+def get_sso_config() -> Dict[str, Any]:
+    """Returns merged SSO / Reverse-Proxy configuration dictionary."""
+    return get_system_settings().get("sso_config", dict(DEFAULT_SSO_CONFIG))
 def set_system_setting(key: str, value: Any) -> bool:
     """Saves or updates a global broker setting into SQLite system_settings table."""
     conn = get_db_connection()

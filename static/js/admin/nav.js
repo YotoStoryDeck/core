@@ -2,13 +2,22 @@
 // Tab Navigation & Hash Slugs
 // ============================================================================
 
-const VALID_TABS = ["profiles", "library", "hardware", "settings"];
+const VALID_TABS = ["profiles", "library", "hardware", "users", "settings"];
+
+const TAB_TITLES = {
+  profiles: "Child Profiles",
+  library: "Library & Curation",
+  hardware: "Hardware Displays",
+  users: "Users & Access Control",
+  settings: "Settings & Diagnostics"
+};
 
 function normalizeTabSlug(slug) {
   if (!slug) return "profiles";
   const s = slug.toLowerCase();
   if (s === "curation") return "library";
   if (s === "diagnostics") return "settings";
+  if (s === "access" || s === "sso" || s === "accounts") return "users";
   return VALID_TABS.includes(s) ? s : "profiles";
 }
 
@@ -38,9 +47,19 @@ function switchTab(tabId, updateHash = true) {
     });
   if (activeBtn) activeBtn.classList.add("active");
 
+  const pageTitle = document.getElementById("adminPageTitle");
+  if (pageTitle) {
+    pageTitle.innerText = TAB_TITLES[tabId] || "Admin Console";
+  }
+
+  if (typeof closeMobileSidebar === "function") {
+    closeMobileSidebar();
+  }
+
   if (tabId === "profiles") loadProfiles();
   if (tabId === "library") loadMatrix();
   if (tabId === "hardware") { loadDevices(); if (typeof loadFirmwareReleases === "function") loadFirmwareReleases(); }
+  if (tabId === "users" && typeof loadUsersPage === "function") loadUsersPage();
   if (tabId === "settings") { loadApiCredentials(); if (typeof checkCoreUpdates === "function") checkCoreUpdates(); }
 }
 
@@ -56,7 +75,7 @@ window.addEventListener("hashchange", () => {
 });
 
 function loadInitialData() {
-  // Restore tab from hash slug (e.g. #library, #hardware, #settings)
+  // Restore tab from hash slug (e.g. #library, #hardware, #users, #settings)
   const initialTab = getTabFromHash();
   switchTab(initialTab, false);
 
@@ -64,6 +83,7 @@ function loadInitialData() {
   if (initialTab !== "profiles") loadProfiles();
   if (initialTab !== "library") loadMatrix();
   if (initialTab !== "hardware") { loadDevices(); if (typeof loadFirmwareReleases === "function") loadFirmwareReleases(); }
+  if (initialTab !== "users" && typeof loadUsersPage === "function") loadUsersPage();
   if (initialTab !== "settings") loadApiCredentials();
   if (typeof checkCoreUpdates === "function") checkCoreUpdates();
 }

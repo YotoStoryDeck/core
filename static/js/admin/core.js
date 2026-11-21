@@ -30,6 +30,16 @@ document.addEventListener("DOMContentLoaded", () => {
   checkAuthStatus();
 });
 
+window.currentSsoMeta = {};
+let initialDataLoaded = false;
+
+window.addEventListener("storydeck:core-status", (e) => {
+  if (e && e.detail && e.detail.recovered) {
+    showToast("StoryDeck Core server reconnected.", "success");
+    checkAuthStatus();
+  }
+});
+
 // HTML escape helper
 function escapeHtml(str) {
   if (!str) return "";
@@ -81,8 +91,26 @@ function showToast(message, type = "info") {
 
 async function checkAuthStatus() {
   try {
-    const res = await fetch("/api/admin/auth/status");
+    const res = await fetch("/api/admin/auth/status", { cache: "no-store" });
+    if (res.status === 502 || res.status === 503 || res.status === 504 || !res.ok) {
+      if (window.StoryDeckHealth) {
+        window.StoryDeckHealth.reportNetworkError(`Core gateway returned HTTP ${res.status}.`);
+      }
+      return;
+    }
     const data = await res.json();
+    window.currentSsoMeta = data.sso || {};
+
+    const ssoNoticeEl = document.getElementById("loginSsoNotice");
+    if (ssoNoticeEl) {
+      if (window.currentSsoMeta.forward_auth_enabled) {
+        const prov = window.currentSsoMeta.provider_name || "Authentik";
+        ssoNoticeEl.style.display = "block";
+        ssoNoticeEl.innerText = `🛡️ Reverse-proxy ForwardAuth (${prov}) is enabled. Accessing via your SSO gateway signs you in automatically.`;
+      } else {
+        ssoNoticeEl.style.display = "none";
+      }
+    }
 
     if (data.setup_required) {
       document.getElementById("setupModal").style.display = "flex";
@@ -98,14 +126,42 @@ async function checkAuthStatus() {
       currentUser = data.user;
       document.getElementById("setupModal").style.display = "none";
       document.getElementById("loginModal").style.display = "none";
-      document.getElementById("mainApp").style.display = "block";
+      document.getElementById("mainApp").style.display = "flex";
       document.getElementById("headerUserSection").style.display = "flex";
-      document.getElementById("userGreeting").innerText = `Welcome, ${currentUser.display_name || currentUser.username}`;
-      loadInitialData();
+
+      const displayName = currentUser.display_name || currentUser.username;
+      document.getElementById("userGreeting").innerText = `Welcome, ${displayName}`;
+
+      const authBadge = document.getElementById("userAuthBadge");
+      const sidebarName = document.getElementById("sidebarAdminName");
+      const sidebarRole = document.getElementById("sidebarAdminRole");
+      let authText = "Local";
+      let authBadgeClass = "badge badge-subtle";
+      if (currentUser.auth_type === "sso") {
+        authText = `SSO: ${currentUser.sso_provider || window.currentSsoMeta.provider_name || "Authentik"}`;
+        authBadgeClass = "badge badge-info";
+      } else if (currentUser.auth_type === "api_key") {
+        authText = "API Key";
+        authBadgeClass = "badge badge-warning";
+      }
+      if (authBadge) {
+        authBadge.style.display = "inline-flex";
+        authBadge.className = authBadgeClass;
+        authBadge.innerText = authText;
+      }
+      if (sidebarName) sidebarName.innerText = displayName;
+      if (sidebarRole) sidebarRole.innerText = `${authText} · Admin`;
+
+      if (!initialDataLoaded) {
+        initialDataLoaded = true;
+        loadInitialData();
+      }
     }
   } catch (err) {
     console.error("Auth check failed:", err);
-    showToast("Failed to verify authentication status.", "danger");
+    if (window.StoryDeckHealth) {
+      window.StoryDeckHealth.reportNetworkError("Cannot reach StoryDeck Core server to verify authentication.");
+    }
   }
 }
 
@@ -151,6 +207,7 @@ async function handleAutoLogin(username, password) {
     const data = await res.json();
     if (res.ok && data.ok) {
       showToast("Signed in successfully.", "success");
+      initialDataLoaded = false;
       checkAuthStatus();
     } else {
       showToast(data.error || "Invalid username or password.", "danger");
@@ -161,8 +218,15 @@ async function handleAutoLogin(username, password) {
 }
 
 async function logout() {
+  const wasSso = Boolean(currentUser && currentUser.auth_type === "sso");
+  const ssoLogoutUrl = (window.currentSsoMeta && window.currentSsoMeta.logout_url) ? window.currentSsoMeta.logout_url.trim() : "";
   try {
     await fetch("/api/admin/auth/logout", { method: "POST" });
+    initialDataLoaded = false;
+    if (wasSso && ssoLogoutUrl) {
+      window.location.href = ssoLogoutUrl;
+      return;
+    }
     showToast("Signed out.");
     checkAuthStatus();
   } catch (err) {
