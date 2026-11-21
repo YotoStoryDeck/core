@@ -233,7 +233,7 @@ export const GrownUpsScreen = {
               <div class="gu-row">
                 <button class="gu-pill-btn" data-act="gu-restart" style="color:var(--red,#e5352b); font-weight:700;">&#128260; Restart Device</button>
                 <button class="gu-pill-btn" data-act="gu-re-pair">&#128279; Re-pair with Core</button>
-                <a href="/settings" target="_blank" class="gu-pill-btn" style="text-decoration:none; display:inline-flex; align-items:center;">&#9881; Web Settings Portal</a>
+                <a href="/admin#settings" target="_blank" class="gu-pill-btn" style="text-decoration:none; display:inline-flex; align-items:center;">&#9881; Web Admin Portal</a>
               </div>
               <div class="gu-info-text">
                 Rebooting clears temporary memory. Re-pairing broadcasts a fresh mDNS discovery handshake to StoryDeck Core.
