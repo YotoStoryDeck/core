@@ -175,6 +175,171 @@ class TestRefactorStandaloneFixes(unittest.TestCase):
                 self.assertEqual(res_fallback.mimetype, "image/png")
                 self.assertNotEqual(res_fallback.data, custom_png)
 
+    def test_06_yoto_get_devices_uses_devices_mine_and_retries_on_401(self):
+        """YotoClient.get_devices() queries /device-v2/devices/mine, trims names, and retries once on 401."""
+        from clients.yoto_client import YotoClient
+
+        yc = YotoClient(client_id="cid_dev_test", refresh_token="rt_dev_test")
+        resp_401 = MagicMock(status_code=401, text="expired")
+        resp_200 = MagicMock(status_code=200)
+        resp_200.json.return_value = {
+            "devices": [
+                {"deviceId": "dev_a", "name": "Wesley ", "online": True},
+                {"deviceId": "dev_b", "name": "  Jackson Mini  ", "online": False},
+            ]
+        }
+
+        with patch.object(yc, "get_token", side_effect=["tok_old", "tok_fresh"]) as mock_tok, \
+             patch("clients.yoto.library.requests.get", side_effect=[resp_401, resp_200]) as mock_get:
+            devices = yc.get_devices()
+
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(devices[0]["name"], "Wesley")
+        self.assertEqual(devices[1]["name"], "Jackson Mini")
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertTrue(all(c.args[0].endswith("/device-v2/devices/mine") for c in mock_get.call_args_list))
+        mock_tok.assert_any_call(force_refresh=True)
+
+    def test_07_yoto_get_raw_library_normalizes_wrapped_cards_and_filters_storydeck(self):
+        """YotoClient.get_raw_library() normalizes nested card objects and drops StoryDeck playlists."""
+        from clients.yoto_client import YotoClient
+
+        yc = YotoClient(client_id="cid_lib_test", refresh_token="rt_lib_test")
+        wrapped_payload = {
+            "cards": [
+                {
+                    "cardId": "retail_1",
+                    "shareType": "yoto",
+                    "lastPlayedAt": "2026-11-19T12:00:00Z",
+                    "card": {
+                        "title": "Spidey Stories",
+                        "metadata": {
+                            "authors": [{"name": "Marvel Press"}],
+                            "cover": {"imageL": "https://cdn.yoto/spidey.jpg"},
+                            "series": "Marvel 5-Minute",
+                            "seriesorder": "1",
+                        },
+                        "content": {"chapters": [{"key": "01", "title": "Intro"}]},
+                    },
+                },
+                {
+                    "cardId": "myo_storydeck",
+                    "shareType": "myo",
+                    "card": {
+                        "title": "ABS Ephemeral Card",
+                        "metadata": {"generator": "storydeck-core", "description": "Streams from Audiobookshelf via StoryDeck Core"},
+                    },
+                },
+            ]
+        }
+        mock_res = MagicMock(status_code=200)
+        mock_res.json.return_value = wrapped_payload
+
+        with patch.object(yc, "get_token", return_value="tok_lib"), \
+             patch("clients.yoto.library.requests.get", return_value=mock_res):
+            cards = yc.get_raw_library()
+
+        self.assertEqual(len(cards), 1)
+        c = cards[0]
+        self.assertEqual(c["cardId"], "retail_1")
+        self.assertEqual(c["title"], "Spidey Stories")
+        self.assertEqual(c["author"], "Marvel Press")
+        self.assertEqual(c["coverImageUrl"], "https://cdn.yoto/spidey.jpg")
+        self.assertFalse(c["isMyo"])
+        self.assertEqual(c["lastPlayedAt"], "2026-11-19T12:00:00Z")
+        self.assertEqual(c["series"], "Marvel 5-Minute")
+        self.assertEqual(c["series_order"], "1")
+
+    def test_08_yoto_get_card_detail_unwraps_and_falls_back_to_retail_card_route(self):
+        """YotoClient.get_card_detail() unwraps {'card': ...} and falls back to /card/{id} on 403."""
+        from clients.yoto_client import YotoClient
+
+        yc = YotoClient(client_id="cid_cd_test", refresh_token="rt_cd_test")
+
+        # 1. Retail card: /content/{id} returns 403, /card/{id} returns 200 wrapped card
+        res_403 = MagicMock(status_code=403, text="forbidden")
+        res_card_200 = MagicMock(status_code=200)
+        res_card_200.json.return_value = {
+            "card": {"cardId": "retail_x", "title": "Retail Title", "content": {"chapters": [{"title": "Ch 1"}]}}
+        }
+        with patch.object(yc, "get_token", return_value="tok_cd"), \
+             patch("clients.yoto.playlists.requests.get", side_effect=[res_403, res_card_200]) as mock_get:
+            detail = yc.get_card_detail("retail_x")
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["title"], "Retail Title")
+        self.assertEqual(detail["content"]["chapters"][0]["title"], "Ch 1")
+        self.assertTrue(mock_get.call_args_list[0].args[0].endswith("/content/retail_x"))
+        self.assertTrue(mock_get.call_args_list[1].args[0].endswith("/card/retail_x"))
+
+        # 2. MYO card: /content/{id} returns 200 wrapped card directly
+        res_myo_200 = MagicMock(status_code=200)
+        res_myo_200.json.return_value = {
+            "card": {"cardId": "myo_x", "title": "MYO Title", "content": {"chapters": [{"title": "Track 1"}]}}
+        }
+        with patch.object(yc, "get_token", return_value="tok_cd"), \
+             patch("clients.yoto.playlists.requests.get", return_value=res_myo_200):
+            myo_detail = yc.get_card_detail("myo_x")
+
+        self.assertEqual(myo_detail["title"], "MYO Title")
+
+    def test_09_yoto_update_card_playlist_handles_wrapped_and_unwrapped_detail(self):
+        """YotoClient.update_card_playlist() unwraps nested card detail before POST /content."""
+        from clients.yoto_client import YotoClient
+
+        yc = YotoClient(client_id="cid_up_test", refresh_token="rt_up_test")
+        wrapped_detail = {
+            "card": {
+                "cardId": "myo_u1",
+                "title": "WrappedPlaylist",
+                "content": {"chapters": [{"key": "01", "title": "Old"}]},
+                "metadata": {"author": "Tester"},
+            }
+        }
+        mock_post = MagicMock(status_code=200)
+        with patch.object(yc, "get_token", return_value="tok_up"), \
+             patch.object(yc, "get_card_detail", return_value=wrapped_detail), \
+             patch("clients.yoto.playlists.requests.post", return_value=mock_post) as post_call:
+            ok = yc.update_card_playlist("myo_u1", chapters=[{"key": "01", "title": "Renamed"}])
+
+        self.assertTrue(ok)
+        sent_body = post_call.call_args.kwargs["json"]
+        self.assertEqual(sent_body["title"], "WrappedPlaylist")
+        self.assertEqual(sent_body["content"]["chapters"][0]["title"], "Renamed")
+        self.assertEqual(sent_body["metadata"]["author"], "Tester")
+
+    def test_10_admin_html_wraps_all_password_inputs_in_forms(self):
+        """Rendered /admin HTML must enclose every <input type='password'> inside a <form> element."""
+        from html.parser import HTMLParser
+
+        class PasswordFormChecker(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.form_depth = 0
+                self.orphan_passwords = []
+
+            def handle_starttag(self, tag, attrs):
+                attr_map = {k.lower(): (v or "").lower() for k, v in attrs}
+                if tag.lower() == "form":
+                    self.form_depth += 1
+                elif tag.lower() == "input" and attr_map.get("type") == "password":
+                    if self.form_depth == 0:
+                        self.orphan_passwords.append(attr_map.get("id") or attr_map.get("name") or "<unnamed>")
+
+            def handle_endtag(self, tag):
+                if tag.lower() == "form" and self.form_depth > 0:
+                    self.form_depth -= 1
+
+        res = self.client.get("/admin")
+        self.assertEqual(res.status_code, 200)
+        parser = PasswordFormChecker()
+        parser.feed(res.get_data(as_text=True))
+        self.assertEqual(
+            parser.orphan_passwords,
+            [],
+            f"Found password input(s) outside <form>: {parser.orphan_passwords}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

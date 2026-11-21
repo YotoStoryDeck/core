@@ -10,25 +10,122 @@ from core.config import logger
 
 
 class YotoLibraryMixin:
+    @staticmethod
+    def _normalize_family_card(item: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalizes wrapped (/card/family/library) or flat Yoto card payloads into a canonical schema."""
+        if not isinstance(item, dict):
+            return {}
+
+        cid = item.get("cardId") or item.get("id") or ""
+        inner = item.get("card") if isinstance(item.get("card"), dict) else {}
+        meta = inner.get("metadata") or item.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        content = inner.get("content") or item.get("content") or {}
+        if not isinstance(content, dict):
+            content = {}
+
+        share_type = item.get("shareType") or inner.get("shareType") or ""
+        reason = str(item.get("reason") or inner.get("reason") or "")
+        if item.get("isMyo") is not None:
+            is_myo = bool(item.get("isMyo"))
+        elif inner.get("isMyo") is not None:
+            is_myo = bool(inner.get("isMyo"))
+        else:
+            is_myo = (share_type == "myo") or reason.startswith("myo")
+
+        title = item.get("title") or inner.get("title") or "Yoto Card"
+
+        authors_list = meta.get("authors")
+        raw_author = item.get("author") or meta.get("author")
+        if not raw_author and isinstance(authors_list, list) and authors_list:
+            first = authors_list[0]
+            raw_author = first.get("name") if isinstance(first, dict) else (first if isinstance(first, str) else "")
+        author = str(raw_author or "Yoto").strip() or "Yoto"
+
+        meta_cover = meta.get("cover") if isinstance(meta.get("cover"), dict) else {}
+        content_cover = content.get("cover") if isinstance(content.get("cover"), dict) else {}
+        cover_url = (
+            item.get("coverImageUrl")
+            or item.get("iconUrl")
+            or meta_cover.get("imageL")
+            or meta_cover.get("imageM")
+            or content_cover.get("imageL")
+            or ""
+        )
+
+        series_name = (
+            item.get("series")
+            or meta.get("seriestitle")
+            or meta.get("series")
+            or meta.get("group")
+            or inner.get("group")
+            or item.get("group")
+            or ""
+        )
+        raw_order = item.get("series_order")
+        if raw_order is None or str(raw_order).strip() == "":
+            raw_order = meta.get("seriesorder") or meta.get("seriesOrder") or ""
+
+        last_played = (
+            item.get("lastPlayedAt")
+            or item.get("lastPlaybackAt")
+            or inner.get("lastPlayedAt")
+            or meta.get("lastPlayedAt")
+            or ""
+        )
+
+        normalized = dict(item)
+        normalized.update({
+            "cardId": cid,
+            "id": cid,
+            "title": str(title),
+            "author": author,
+            "isMyo": is_myo,
+            "coverImageUrl": cover_url,
+            "series": str(series_name).strip() if series_name else "",
+            "series_order": str(raw_order).strip() if raw_order not in (None, "") else "",
+            "lastPlayedAt": last_played,
+            "shareType": share_type,
+            "metadata": meta,
+            "content": content,
+            "groups": list(item.get("groups") or inner.get("groups") or []),
+        })
+        if inner:
+            normalized["card"] = inner
+        return normalized
+
     def get_devices(self) -> List[Dict[str, Any]]:
-        """Queries registered Yoto player devices from Yoto Cloud API."""
+        """Queries registered Yoto player devices from Yoto Cloud API v2 (/device-v2/devices/mine)."""
         token = self.get_token()
         if not token:
             return []
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        try:
-            res = requests.get(f"{self.API_URL}/device-v2", headers=headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                if isinstance(data, list):
-                    return data
-                return data.get("devices", data.get("items", []))
-            elif res.status_code == 404:
-                res2 = requests.get(f"{self.API_URL}/device/family/library", headers=headers, timeout=10)
-                if res2.status_code == 200:
-                    return res2.json().get("devices", [])
-        except Exception as e:
-            logger.error("Yoto get_devices error: %s", e)
+
+        url = f"{self.API_URL}/device-v2/devices/mine"
+        for attempt in range(2):
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    raw_devices = data if isinstance(data, list) else data.get("devices", data.get("items", []))
+                    cleaned: List[Dict[str, Any]] = []
+                    for d in (raw_devices or []):
+                        if isinstance(d, dict):
+                            item = dict(d)
+                            if isinstance(item.get("name"), str):
+                                item["name"] = item["name"].strip()
+                            cleaned.append(item)
+                    return cleaned
+                if res.status_code in (401, 403) and attempt == 0:
+                    token = self.get_token(force_refresh=True)
+                    if token:
+                        continue
+                logger.warning("Yoto get_devices failed (%d): %s", res.status_code, (res.text or "")[:200])
+                break
+            except Exception as e:
+                logger.error("Yoto get_devices error: %s", e)
+                break
         return []
 
     def get_raw_library(self) -> List[Dict[str, Any]]:
@@ -52,17 +149,16 @@ class YotoLibraryMixin:
 
         combined_map: Dict[str, Dict[str, Any]] = {}
         for c in local_cards:
-            cid = c.get("cardId") or c.get("id")
+            norm = self._normalize_family_card(c)
+            cid = norm.get("cardId") or norm.get("id")
             if cid:
-                combined_map[cid] = c
+                combined_map[cid] = norm
 
         for c in cloud_cards:
-            cid = c.get("cardId") or c.get("id")
+            norm = self._normalize_family_card(c)
+            cid = norm.get("cardId") or norm.get("id")
             if cid:
-                lp = c.get("lastPlayedAt") or (c.get("card") or {}).get("lastPlayedAt") or (c.get("metadata") or {}).get("lastPlayedAt") or ""
-                if lp and not c.get("lastPlayedAt"):
-                    c["lastPlayedAt"] = lp
-                combined_map[cid] = c
+                combined_map[cid] = norm
 
         # Deduplicate & filter StoryDeck-generated playlists from general retail library
         try:
@@ -80,9 +176,9 @@ class YotoLibraryMixin:
             cid = c.get("cardId") or c.get("id") or ""
             if cid in registered_slots or cid.startswith("profile_"):
                 continue
-            meta = c.get("metadata") or {}
+            meta = c.get("metadata") or (c.get("card") or {}).get("metadata") or {}
             desc = (meta.get("description") or c.get("description") or "").lower()
-            gen = (meta.get("generator") or "").lower()
+            gen = (meta.get("generator") or c.get("generator") or "").lower()
             if "streams from audiobookshelf via" in desc or gen == "storydeck-core" or "storydeck" in desc:
                 continue
             filtered_cards.append(c)
@@ -105,42 +201,10 @@ class YotoLibraryMixin:
                     raw_list = data.get("cards", [])
                     results = []
                     for item in raw_list:
-                        cid = item.get("cardId")
+                        cid = item.get("cardId") or item.get("id")
                         if not cid:
                             continue
-                        c = item.get("card") or {}
-                        meta = c.get("metadata") or {}
-                        content = c.get("content") or {}
-
-                        cover_url = (
-                            meta.get("cover", {}).get("imageL")
-                            or content.get("cover", {}).get("imageL")
-                            or ""
-                        )
-
-                        share_type = item.get("shareType", "")
-                        is_myo = (share_type == "myo") or bool(item.get("reason", "").startswith("myo")) or c.get("isMyo", False)
-
-                        series_name = (
-                            meta.get("seriestitle")
-                            or meta.get("series")
-                            or meta.get("group")
-                            or c.get("group")
-                            or ""
-                        )
-                        series_order = meta.get("seriesorder") or ""
-
-                        results.append({
-                            "cardId": cid,
-                            "id": cid,
-                            "title": c.get("title") or item.get("title") or "Yoto Title",
-                            "author": meta.get("author") or meta.get("authors", ["Yoto"])[0] if isinstance(meta.get("authors"), list) and meta.get("authors") else "Yoto",
-                            "isMyo": is_myo,
-                            "coverImageUrl": cover_url,
-                            "series": str(series_name).strip() if series_name else "",
-                            "series_order": str(series_order).strip() if series_order else "",
-                            "lastPlayedAt": item.get("lastPlayedAt") or c.get("lastPlayedAt") or meta.get("lastPlayedAt") or ""
-                        })
+                        results.append(self._normalize_family_card(item))
                     if results:
                         logger.info("Loaded %d cards from local library cache (%s)", len(results), p)
                         return results

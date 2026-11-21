@@ -207,6 +207,22 @@ def serve_thumbnail():
                 if cached_file and cached_file.exists():
                     break
 
+        if (not cached_file or not cached_file.exists()) and ref and clients.yoto_client:
+            def fetch_yoto_icon():
+                icon_url = clients.yoto_client.resolve_display_icon_url(ref)
+                if not icon_url:
+                    return None
+                try:
+                    res = requests.get(icon_url, timeout=10)
+                    if res.status_code == 200:
+                        return res.content
+                    logger.warning("Yoto icon fetch returned HTTP %d for ref %s", res.status_code, ref)
+                except Exception as e:
+                    logger.warning("Yoto icon fetch failed for ref %s: %s", ref, e)
+                return None
+
+            cached_file = get_thumbnail(f"yoto_icon_{ref}", fetch_yoto_icon, size, crop=True)
+
         if not cached_file or not cached_file.exists():
             placeholder_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 100 100">
                 <rect width="100" height="100" rx="12" fill="#2d3748"/>

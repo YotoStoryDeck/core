@@ -9,19 +9,23 @@ from core.config import logger
 
 class YotoPlaylistsMixin:
     def get_card_detail(self, card_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves detailed metadata for a Yoto card from direct Yoto Cloud API or local library."""
+        """Retrieves unwrapped card metadata/chapters from Yoto Cloud (/content/{id} or retail /card/{id})."""
         if not card_id:
             return None
 
         token = self.get_token()
         if token:
-            try:
-                headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-                res = requests.get(f"{self.API_URL}/content/{card_id}", headers=headers, timeout=15)
-                if res.status_code == 200:
-                    return res.json()
-            except Exception as e:
-                logger.debug("Cloud get_card_detail error for %s: %s", card_id, e)
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            for path in (f"/content/{card_id}", f"/card/{card_id}"):
+                try:
+                    res = requests.get(f"{self.API_URL}{path}", headers=headers, timeout=15)
+                    if res.status_code == 200:
+                        data = res.json()
+                        if isinstance(data, dict) and isinstance(data.get("card"), dict):
+                            return data["card"]
+                        return data
+                except Exception as e:
+                    logger.debug("Cloud get_card_detail error on %s for %s: %s", path, card_id, e)
 
         raw_lib = self.get_raw_library()
         for item in raw_lib:
@@ -42,15 +46,17 @@ class YotoPlaylistsMixin:
             return False
 
         try:
-            detail = self.get_card_detail(card_id) or {}
-            content = detail.get("content", {})
+            detail_raw = self.get_card_detail(card_id) or {}
+            detail = detail_raw.get("card") if isinstance(detail_raw.get("card"), dict) else detail_raw
+            content = dict(detail.get("content") or {})
+            metadata = dict(detail.get("metadata") or {})
             if chapters is not None:
                 content["chapters"] = chapters
             body = {
                 "cardId": card_id,
                 "title": title or detail.get("title", ""),
                 "content": content,
-                "metadata": detail.get("metadata", {})
+                "metadata": metadata,
             }
             if cover_url:
                 body["metadata"]["cover"] = {"imageL": cover_url}
@@ -294,3 +300,44 @@ class YotoPlaylistsMixin:
         except Exception as e:
             logger.error("Direct Yoto Cloud upload_display_icon error: %s", e)
         return None
+
+    def resolve_display_icon_url(self, media_id: str) -> Optional[str]:
+        """Resolves a Yoto 16x16 display icon reference ('yoto:#<id>' or '<id>') to its CDN URL."""
+        clean_id = (media_id or "").replace("yoto:#", "").strip()
+        if not clean_id:
+            return None
+
+        now = time.time()
+        cache = getattr(self, "_icon_url_cache", None)
+        cache_ts = float(getattr(self, "_icon_url_cache_ts", 0.0) or 0.0)
+
+        if cache is None or (now - cache_ts) >= 600.0:
+            token = self.get_token()
+            if not token:
+                return cache.get(clean_id) if isinstance(cache, dict) else None
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            new_cache: Dict[str, str] = {}
+            for path in ("/media/displayIcons/user/me", "/media/displayIcons/user/yoto"):
+                try:
+                    res = requests.get(f"{self.API_URL}{path}", headers=headers, timeout=15)
+                    if res.status_code == 200:
+                        for icon in res.json().get("displayIcons", []):
+                            if not isinstance(icon, dict):
+                                continue
+                            url = icon.get("url")
+                            if not url:
+                                continue
+                            for key_field in ("mediaId", "displayIconId"):
+                                val = icon.get(key_field)
+                                if val:
+                                    new_cache[str(val)] = url
+                except Exception as e:
+                    logger.debug("Display icon list notice (%s): %s", path, e)
+            if new_cache:
+                self._icon_url_cache = new_cache
+                self._icon_url_cache_ts = now
+                cache = new_cache
+            elif isinstance(cache, dict):
+                self._icon_url_cache_ts = now
+
+        return cache.get(clean_id) if isinstance(cache, dict) else None

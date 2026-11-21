@@ -125,30 +125,32 @@
 
           <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
             <strong style="display: block; font-size: 13px; margin-bottom: 10px; color: var(--text-primary);">➕ Add Household User</strong>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end;">
-              <div>
-                <label for="newAdminUsername" style="font-size: 11px; color: var(--text-secondary);">Username</label>
-                <input type="text" id="newAdminUsername" class="form-control" placeholder="e.g. sitter" autocomplete="off">
+            <form onsubmit="event.preventDefault(); createNewHouseholdUser();" style="margin: 0; padding: 0;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end;">
+                <div>
+                  <label for="newAdminUsername" style="font-size: 11px; color: var(--text-secondary);">Username</label>
+                  <input type="text" id="newAdminUsername" class="form-control" placeholder="e.g. sitter" autocomplete="off">
+                </div>
+                <div>
+                  <label for="newAdminDisplayName" style="font-size: 11px; color: var(--text-secondary);">Display Name</label>
+                  <input type="text" id="newAdminDisplayName" class="form-control" placeholder="e.g. Grandma / Sitter" autocomplete="off">
+                </div>
+                <div>
+                  <label for="newAdminRole" style="font-size: 11px; color: var(--text-secondary);">Role</label>
+                  <select id="newAdminRole" class="form-control">
+                    <option value="member">Member (Portal Only)</option>
+                    <option value="admin">Admin (Full Console)</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="newAdminPassword" style="font-size: 11px; color: var(--text-secondary);">Password</label>
+                  <input type="password" id="newAdminPassword" class="form-control" placeholder="Min 6 chars" autocomplete="new-password">
+                </div>
+                <div>
+                  <button type="button" class="btn btn-primary btn-sm" style="width: 100%; height: 36px;" onclick="createNewHouseholdUser()">+ Create Account</button>
+                </div>
               </div>
-              <div>
-                <label for="newAdminDisplayName" style="font-size: 11px; color: var(--text-secondary);">Display Name</label>
-                <input type="text" id="newAdminDisplayName" class="form-control" placeholder="e.g. Grandma / Sitter" autocomplete="off">
-              </div>
-              <div>
-                <label for="newAdminRole" style="font-size: 11px; color: var(--text-secondary);">Role</label>
-                <select id="newAdminRole" class="form-control">
-                  <option value="member">Member (Portal Only)</option>
-                  <option value="admin">Admin (Full Console)</option>
-                </select>
-              </div>
-              <div>
-                <label for="newAdminPassword" style="font-size: 11px; color: var(--text-secondary);">Password</label>
-                <input type="password" id="newAdminPassword" class="form-control" placeholder="Min 6 chars" autocomplete="new-password">
-              </div>
-              <div>
-                <button type="button" class="btn btn-primary btn-sm" style="width: 100%; height: 36px;" onclick="createNewHouseholdUser()">+ Create Account</button>
-              </div>
-            </div>
+            </form>
           </div>
         </div>
       </div>
