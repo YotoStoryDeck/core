@@ -124,20 +124,22 @@
 
       <!-- SSO & Reverse Proxy / Authentik Future-Proof Integration Card (Collapsible) -->
       <div class="card settings-card" id="cardSsoConfig">
-        <details id="ssoConfigDetails">
-          <summary style="list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; user-select: none;">
-            <div>
-              <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Authelia / Reverse Proxy)</h3>
-              <p class="text-secondary" style="margin: 0; font-size: 13px;">Matches users permanently by immutable Subject/UID after initial email or username match, and supports OIDC Auto-Discovery.</p>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
-              <span class="badge badge-subtle" id="ssoConfigStatusBadge">ForwardAuth</span>
-              <span class="text-secondary" style="font-size: 12px; font-weight: 600;">▾ Expand / Collapse</span>
-            </div>
-          </summary>
+        <div class="card-header-clickable" onclick="toggleCardExpansion('sso')" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; cursor: pointer;">
+          <div style="flex: 1; min-width: 260px;">
+            <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Authelia / Reverse Proxy)</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Matches users permanently by immutable Subject/UID after initial email or username match, and supports OIDC Auto-Discovery.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
+            <span class="badge badge-subtle" id="ssoConfigStatusBadge">ForwardAuth</span>
+            <span class="expand-chevron" id="ssoChevron">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
+          </div>
+        </div>
 
-          <form id="ssoConfigForm" onsubmit="event.preventDefault(); saveSsoConfig();" style="margin-top: 16px;">
+        <div class="card-collapsible-body" id="ssoBody" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+          <form id="ssoConfigForm" onsubmit="event.preventDefault(); saveSsoConfig();">
             <!-- Universal SSO Identity & Provisioning Settings -->
             <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
               <div style="margin-bottom: 12px;">
@@ -234,33 +236,38 @@
               </div>
 
               <!-- Nested Collapsible Menu: Header Mapping Settings -->
-              <details id="ssoHeaderSettingsDetails" style="background: rgba(0,0,0,0.18); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px;">
-                <summary style="cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-primary); user-select: none;">
-                  ⚙️ Header Mapping Settings (ForwardAuth Headers)
-                </summary>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px;">
-                  <div>
-                    <label for="ssoHeaderSubject" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Immutable Subject / UID Header</label>
-                    <input type="text" id="ssoHeaderSubject" class="form-control" placeholder="X-authentik-uid">
-                  </div>
-                  <div>
-                    <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
-                    <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
-                  </div>
-                  <div>
-                    <label for="ssoHeaderEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email Header</label>
-                    <input type="text" id="ssoHeaderEmail" class="form-control" placeholder="X-authentik-email">
-                  </div>
-                  <div>
-                    <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
-                    <input type="text" id="ssoHeaderDisplayName" class="form-control" placeholder="X-authentik-name">
-                  </div>
-                  <div>
-                    <label for="ssoHeaderGroups" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Groups Header</label>
-                    <input type="text" id="ssoHeaderGroups" class="form-control" placeholder="X-authentik-groups">
+              <div style="background: rgba(0,0,0,0.18); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px;">
+                <div class="card-header-clickable" onclick="toggleCardExpansion('ssoHeaders')" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer;">
+                  <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">⚙️ Header Mapping Settings (ForwardAuth Headers)</span>
+                  <span class="expand-chevron" id="ssoHeadersChevron">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </span>
+                </div>
+                <div class="card-collapsible-body" id="ssoHeadersBody" style="display: none; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    <div>
+                      <label for="ssoHeaderSubject" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Immutable Subject / UID Header</label>
+                      <input type="text" id="ssoHeaderSubject" class="form-control" placeholder="X-authentik-uid">
+                    </div>
+                    <div>
+                      <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
+                      <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
+                    </div>
+                    <div>
+                      <label for="ssoHeaderEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email Header</label>
+                      <input type="text" id="ssoHeaderEmail" class="form-control" placeholder="X-authentik-email">
+                    </div>
+                    <div>
+                      <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
+                      <input type="text" id="ssoHeaderDisplayName" class="form-control" placeholder="X-authentik-name">
+                    </div>
+                    <div>
+                      <label for="ssoHeaderGroups" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Groups Header</label>
+                      <input type="text" id="ssoHeaderGroups" class="form-control" placeholder="X-authentik-groups">
+                    </div>
                   </div>
                 </div>
-              </details>
+              </div>
             </div>
 
             <!-- Native OIDC / Auto-Discovery Subsection -->
@@ -308,6 +315,6 @@
               <button type="submit" class="btn btn-primary" id="btnSaveSsoConfig">💾 Save Access &amp; SSO Settings</button>
             </div>
           </form>
-        </details>
+        </div>
       </div>
     </section>
