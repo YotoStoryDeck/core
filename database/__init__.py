@@ -7,7 +7,7 @@ from .schema import init_db, run_schema_migrations, migrate_legacy_config
 from .auth import (
     hash_password, verify_password, get_admin_user_count, create_admin_user,
     authenticate_user, get_user_by_username, list_admin_users,
-    get_user_by_id, update_user_role, update_user_password,
+    get_user_by_id, update_user_username, update_user_role, update_user_password,
     update_user_display_name, update_user_sso_provider, delete_user
 )
 from .profiles import (
@@ -43,7 +43,7 @@ __all__ = [
     "init_db", "run_schema_migrations", "migrate_legacy_config",
     "hash_password", "verify_password", "get_admin_user_count", "create_admin_user",
     "authenticate_user", "get_user_by_username", "list_admin_users",
-    "get_user_by_id", "update_user_role", "update_user_password",
+    "get_user_by_id", "update_user_username", "update_user_role", "update_user_password",
     "update_user_display_name", "update_user_sso_provider", "delete_user",
     "get_all_profiles", "get_profile_by_id", "upsert_profile", "delete_profile",
     "get_shared_rules", "set_shared_rule",

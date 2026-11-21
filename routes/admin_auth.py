@@ -76,7 +76,7 @@ def admin_auth_setup():
     if not username or len(password) < 8:
         return jsonify({"ok": False, "error": "Username required, and password must be at least 8 characters."}), 400
 
-    new_user = database.create_admin_user(username, password, display_name=display_name, role="admin")
+    new_user = database.create_admin_user(username, password, display_name=display_name, role="admin", is_super_admin=True)
     return jsonify({"ok": True, "message": "Initial administrator account created.", "user": new_user}), 201
 
 
@@ -95,6 +95,7 @@ def admin_auth_login():
     session["username"] = user["username"]
     session["display_name"] = user["display_name"]
     session["role"] = user["role"]
+    session["is_super_admin"] = bool(user.get("is_super_admin", False))
 
     return jsonify({"ok": True, "message": "Signed in successfully.", "user": user})
 
@@ -125,9 +126,30 @@ def auth_me():
 @admin_auth_bp.route("/api/admin/users", methods=["GET"])
 @require_admin
 def list_users():
-    """Lists all registered system user accounts."""
+    """Lists all registered system user accounts with actor-scoped management permissions."""
+    actor = get_current_admin_user() or {}
+    actor_id = actor.get("id")
+    actor_is_super = bool(actor.get("is_super_admin", False))
+
     users = database.list_admin_users()
-    return jsonify({"ok": True, "users": users}), 200
+    enriched = []
+    for u in users:
+        is_super = bool(u.get("is_super_admin", False))
+        is_self = bool(actor_id and actor_id == u["id"])
+        item = dict(u)
+        item["is_super_admin"] = is_super
+        item["is_self"] = is_self
+        item["can_edit"] = (not is_super) or actor_is_super or is_self
+        item["can_change_role"] = (not is_super) and (not is_self)
+        item["can_delete"] = (not is_super) and (not is_self)
+        enriched.append(item)
+
+    return jsonify({
+        "ok": True,
+        "users": enriched,
+        "current_user_id": actor_id,
+        "current_is_super_admin": actor_is_super,
+    }), 200
 
 
 @admin_auth_bp.route("/api/admin/users", methods=["POST"])
@@ -161,7 +183,8 @@ def create_user():
             password=password,
             display_name=display_name,
             role=role,
-            sso_provider=sso_provider
+            sso_provider=sso_provider,
+            is_super_admin=False
         )
         return jsonify({"ok": True, "message": f"User '{username}' created successfully.", "user": user}), 201
     except Exception as e:
@@ -171,45 +194,97 @@ def create_user():
 @admin_auth_bp.route("/api/admin/users/<user_id>", methods=["PUT"])
 @require_admin
 def update_user(user_id):
-    """Updates user display name, role, SSO provider link, or password."""
+    """Updates user username, display name, role, SSO provider link, or password."""
     data = request.get_json(silent=True) or {}
+    actor = get_current_admin_user() or {}
     user = database.get_user_by_id(user_id)
     if not user:
         return jsonify({"ok": False, "error": "User not found."}), 404
 
-    # Update display name
-    if "display_name" in data:
-        database.update_user_display_name(user_id, (data.get("display_name") or "").strip())
+    is_super_target = bool(user.get("is_super_admin", False))
+    is_self = bool(actor.get("id") and actor.get("id") == user["id"])
+    actor_is_super = bool(actor.get("is_super_admin", False))
 
-    # Update linked SSO provider
-    if "sso_provider" in data:
-        database.update_user_sso_provider(user_id, str(data.get("sso_provider") or "").strip())
+    if is_super_target and not actor_is_super and not is_self:
+        return jsonify({"ok": False, "error": "The primary Super Admin account cannot be modified by other administrators."}), 403
 
-    # Update role
+    # Validate role transitions before applying any partial mutations
     if "role" in data:
         role = str(data.get("role") or "").strip().lower()
         if role not in ("admin", "member"):
             return jsonify({"ok": False, "error": "Role must be 'admin' or 'member'."}), 400
+        if is_super_target and role != "admin":
+            return jsonify({"ok": False, "error": "The primary Super Admin account cannot be demoted from Admin."}), 400
+        if is_self and role != "admin":
+            return jsonify({"ok": False, "error": "You cannot demote your own active administrator account."}), 400
+
+    # Validate username change before applying partial mutations
+    if "username" in data:
+        new_username = (data.get("username") or "").strip()
+        if not new_username:
+            return jsonify({"ok": False, "error": "Username cannot be empty."}), 400
+        if new_username != user["username"]:
+            existing = database.get_user_by_username(new_username)
+            if existing and existing["id"] != user_id:
+                return jsonify({"ok": False, "error": f"Username '{new_username}' already exists."}), 409
+
+    # Validate password length before applying partial mutations
+    if data.get("password"):
+        new_pw = data.get("password")
+        if len(new_pw) < 8:
+            return jsonify({"ok": False, "error": "Password must be at least 8 characters."}), 400
+
+    if "username" in data:
+        try:
+            database.update_user_username(user_id, (data.get("username") or "").strip())
+        except ValueError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 409
+
+    if "display_name" in data:
+        database.update_user_display_name(user_id, (data.get("display_name") or "").strip())
+
+    if "sso_provider" in data:
+        database.update_user_sso_provider(user_id, str(data.get("sso_provider") or "").strip())
+
+    if "role" in data:
+        role = str(data.get("role") or "").strip().lower()
         try:
             database.update_user_role(user_id, role)
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
-    # Update password if provided
     if data.get("password"):
-        new_pw = data.get("password")
-        if len(new_pw) < 8:
-            return jsonify({"ok": False, "error": "Password must be at least 8 characters."}), 400
-        database.update_user_password(user_id, new_pw)
+        database.update_user_password(user_id, data.get("password"))
 
     updated_user = database.get_user_by_id(user_id)
+    if is_self and actor.get("auth_type") == "session" and updated_user:
+        session["username"] = updated_user["username"]
+        session["display_name"] = updated_user["display_name"]
+
     return jsonify({"ok": True, "message": "User updated successfully.", "user": updated_user}), 200
 
 
 @admin_auth_bp.route("/api/admin/users/<user_id>", methods=["DELETE"])
 @require_admin
 def delete_user_route(user_id):
-    """Deletes a user account, preventing deletion of the last admin."""
+    """Deletes a user account, protecting the primary Super Admin, self-deletion, and the last admin."""
+    actor = get_current_admin_user() or {}
+    user = database.get_user_by_id(user_id)
+    if not user:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+
+    is_super_target = bool(user.get("is_super_admin", False))
+    is_self = bool(actor.get("id") and actor.get("id") == user["id"])
+    actor_is_super = bool(actor.get("is_super_admin", False))
+
+    if is_super_target:
+        if not actor_is_super and not is_self:
+            return jsonify({"ok": False, "error": "The primary Super Admin account cannot be deleted by other administrators."}), 403
+        return jsonify({"ok": False, "error": "The primary Super Admin account cannot be deleted."}), 400
+
+    if is_self:
+        return jsonify({"ok": False, "error": "You cannot delete your own active account."}), 400
+
     try:
         success = database.delete_user(user_id)
         if not success:

@@ -1,0 +1,52 @@
+  <!-- Edit Household User Profile Modal -->
+  <div class="modal-overlay" id="editUserModal" style="display: none;">
+    <div class="modal-card" style="max-width: 460px;">
+      <div class="modal-header">
+        <h2 style="margin-bottom: 4px;">✏️ Edit User Profile</h2>
+        <p class="text-secondary" style="margin-bottom: 16px;" id="editUserModalSubtitle">Update account username, display name, role, SSO link, or password.</p>
+      </div>
+      <form id="editUserForm" onsubmit="event.preventDefault(); saveEditedUserProfile();">
+        <input type="hidden" id="editUserId">
+
+        <div class="form-group">
+          <label for="editUserUsername">Username</label>
+          <input type="text" id="editUserUsername" class="form-control" required autocomplete="off" placeholder="username">
+        </div>
+
+        <div class="form-group">
+          <label for="editUserDisplayName">Display Name</label>
+          <input type="text" id="editUserDisplayName" class="form-control" autocomplete="off" placeholder="Friendly name">
+        </div>
+
+        <div class="form-group">
+          <label for="editUserRole">Role</label>
+          <select id="editUserRole" class="form-control">
+            <option value="member">Member (Parent Portal Only)</option>
+            <option value="admin">Admin (Full Console)</option>
+          </select>
+          <small id="editUserRoleHint" class="text-secondary" style="display: none; font-size: 11px; margin-top: 4px;"></small>
+        </div>
+
+        <div class="form-group">
+          <label for="editUserAuthSource">Authentication / SSO Link</label>
+          <select id="editUserAuthSource" class="form-control">
+            <option value="">Local Password Account</option>
+            <option value="authentik">Authentik SSO</option>
+            <option value="authelia">Authelia SSO</option>
+            <option value="cloudflare_access">Cloudflare Access SSO</option>
+            <option value="sso">Generic Reverse-Proxy SSO</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="editUserPassword">New Password (Optional)</label>
+          <input type="password" id="editUserPassword" class="form-control" autocomplete="new-password" placeholder="Leave blank to keep current (min 8 chars)">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveEditUser">💾 Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>

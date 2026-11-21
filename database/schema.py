@@ -25,6 +25,7 @@ def init_db():
                 display_name TEXT DEFAULT '',
                 role TEXT DEFAULT 'admin',
                 sso_provider TEXT DEFAULT '',
+                is_super_admin BOOLEAN DEFAULT 0,
                 last_login DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -236,7 +237,7 @@ def init_db():
 # ============================================================================
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 def run_schema_migrations(conn: sqlite3.Connection):
     """
     Applies incremental database schema migrations sequentially using SQLite's
@@ -455,6 +456,29 @@ def run_schema_migrations(conn: sqlite3.Connection):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_media_series_overrides_series ON media_series_overrides(series);")
             conn.execute("PRAGMA user_version = 11;")
         logger.info("Migrated SQLite schema to version 11 (added media_series_overrides table).")
+
+    # Version 11 -> 12: Primary Super Admin Protection on admin_users
+    if version < 12:
+        with conn:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_users';")
+            if cur.fetchone():
+                cur.execute("PRAGMA table_info(admin_users);")
+                cols = [c[1] for c in cur.fetchall()]
+                if "is_super_admin" not in cols:
+                    conn.execute("ALTER TABLE admin_users ADD COLUMN is_super_admin BOOLEAN DEFAULT 0;")
+                cur.execute("SELECT COUNT(*) FROM admin_users WHERE is_super_admin = 1;")
+                if cur.fetchone()[0] == 0:
+                    cur.execute("""
+                        SELECT id FROM admin_users
+                        WHERE role = 'admin'
+                        ORDER BY created_at ASC, rowid ASC
+                        LIMIT 1;
+                    """)
+                    first_admin = cur.fetchone()
+                    if first_admin:
+                        conn.execute("UPDATE admin_users SET is_super_admin = 1 WHERE id = ?;", (first_admin[0],))
+            conn.execute("PRAGMA user_version = 12;")
+        logger.info("Migrated SQLite schema to version 12 (added is_super_admin to admin_users).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================

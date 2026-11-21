@@ -3,6 +3,10 @@
 // ============================================================================
 
 let cachedUsersList = [];
+let currentUsersMeta = {
+  current_user_id: "",
+  current_is_super_admin: false
+};
 let cachedSsoMeta = {
   sso_config: {},
   env_trusted_proxies: ["127.0.0.1/32"],
@@ -26,6 +30,10 @@ async function loadHouseholdUsers() {
     if (!res.ok) return;
     const data = await res.json();
     cachedUsersList = Array.isArray(data.users) ? data.users : [];
+    currentUsersMeta = {
+      current_user_id: data.current_user_id || "",
+      current_is_super_admin: Boolean(data.current_is_super_admin)
+    };
     renderHouseholdUsers(cachedUsersList);
     updateUsersKpis();
   } catch (err) {
@@ -35,15 +43,23 @@ async function loadHouseholdUsers() {
 
 function updateUsersKpis() {
   const total = cachedUsersList.length;
-  const admins = cachedUsersList.filter(u => u.role === "admin").length;
-  const members = total - admins;
+  const superAdmins = cachedUsersList.filter(u => Boolean(u.is_super_admin)).length;
+  const admins = cachedUsersList.filter(u => u.role === "admin" && !u.is_super_admin).length;
+  const members = cachedUsersList.filter(u => u.role !== "admin").length;
   const ssoUsers = cachedUsersList.filter(u => Boolean(u.sso_provider)).length;
 
   const kpiTotal = document.getElementById("kpiTotalUsers");
   const kpiBreak = document.getElementById("kpiUsersBreakdown");
   const countBadge = document.getElementById("userCountBadge");
   if (kpiTotal) kpiTotal.innerText = String(total);
-  if (kpiBreak) kpiBreak.innerText = `${admins} Admin · ${members} Member${ssoUsers ? ` · ${ssoUsers} SSO` : ""}`;
+  if (kpiBreak) {
+    const parts = [];
+    if (superAdmins) parts.push(`${superAdmins} Super Admin`);
+    parts.push(`${admins} Admin${admins === 1 ? "" : "s"}`);
+    parts.push(`${members} Member${members === 1 ? "" : "s"}`);
+    if (ssoUsers) parts.push(`${ssoUsers} SSO`);
+    kpiBreak.innerText = parts.join(" · ");
+  }
   if (countBadge) countBadge.innerText = `${total} Account${total === 1 ? "" : "s"}`;
 
   const authTypeMap = {
@@ -56,7 +72,8 @@ function updateUsersKpis() {
   const kpiMethodSub = document.getElementById("kpiActiveAuthSub");
   if (kpiMethod) kpiMethod.innerText = authTypeMap[authType] || "Local Session";
   if (kpiMethodSub && typeof currentUser === "object" && currentUser) {
-    kpiMethodSub.innerText = `Signed in as ${currentUser.display_name || currentUser.username}`;
+    const tier = currentUser.is_super_admin ? "Super Admin" : "Admin";
+    kpiMethodSub.innerText = `Signed in as ${currentUser.display_name || currentUser.username} (${tier})`;
   }
 
   const lanEnabled = Boolean(cachedSsoMeta.lan_sitter_access_enabled);
@@ -101,30 +118,176 @@ function renderHouseholdUsers(users) {
     const tr = document.createElement("tr");
     tr.style.borderBottom = "1px solid var(--border-subtle)";
     const isAdmin = u.role === "admin";
+    const isSuper = Boolean(u.is_super_admin);
+    const isSelf = Boolean(u.is_self || (currentUsersMeta.current_user_id && currentUsersMeta.current_user_id === uid));
+    const canEdit = (u.can_edit !== undefined) ? Boolean(u.can_edit) : (!isSuper || currentUsersMeta.current_is_super_admin || isSelf);
+    const canChangeRole = (u.can_change_role !== undefined) ? Boolean(u.can_change_role) : (!isSuper && !isSelf);
+    const canDelete = (u.can_delete !== undefined) ? Boolean(u.can_delete) : (!isSuper && !isSelf);
+
     const ssoProv = (u.sso_provider || "").trim();
     const authBadge = ssoProv
       ? `<span class="badge badge-info" title="Authenticated via SSO / Reverse Proxy">🛡️ SSO: ${escapeHtml(ssoProv)}</span>`
       : `<span class="badge badge-subtle">🔑 Local</span>`;
     const lastLogin = u.last_login ? escapeHtml(String(u.last_login).replace("T", " ").slice(0, 16)) : `<span style="color: var(--text-muted);">Never</span>`;
 
-    tr.innerHTML = `
-      <td style="padding: 10px 12px; font-weight: 600;">${escapeHtml(u.username)}</td>
-      <td style="padding: 10px 12px;">${escapeHtml(u.display_name || u.username)}</td>
-      <td style="padding: 10px 12px;">${authBadge}</td>
-      <td style="padding: 10px 12px;">
+    const superBadge = isSuper ? ` <span class="badge badge-warning" title="Primary Super Admin account — cannot be modified or deleted by other admins">👑 Super Admin</span>` : "";
+    const selfBadge = isSelf ? ` <span class="badge badge-subtle">You</span>` : "";
+
+    let roleCellHtml = "";
+    if (isSuper) {
+      roleCellHtml = `<span class="badge badge-warning">👑 Super Admin (Locked)</span>`;
+    } else if (!canChangeRole) {
+      roleCellHtml = `<span class="badge badge-info">${isAdmin ? "🛡️ Admin" : "👤 Member"} (Current Session)</span>`;
+    } else {
+      roleCellHtml = `
         <select class="form-control" style="width: 155px; font-size: 12px; padding: 4px 8px;" onchange="changeHouseholdUserRole('${escapeHtml(uid)}', this.value)">
           <option value="admin" ${isAdmin ? 'selected' : ''}>🛡️ Admin (Console)</option>
           <option value="member" ${!isAdmin ? 'selected' : ''}>👤 Member (Portal)</option>
         </select>
-      </td>
+      `;
+    }
+
+    let actionsCellHtml = "";
+    if (!canEdit) {
+      actionsCellHtml = `<span class="badge badge-subtle" title="The primary Super Admin account cannot be managed by other administrators">🔒 Protected</span>`;
+    } else {
+      actionsCellHtml = `
+        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 11px;" onclick="openEditUserModal('${escapeHtml(uid)}')">✏️ Edit</button>
+        ${canDelete ? `<button type="button" class="btn btn-danger btn-sm" style="font-size: 11px; margin-left: 4px;" onclick="deleteHouseholdUser('${escapeHtml(uid)}', '${escapeHtml(u.username)}')">🗑️</button>` : ""}
+      `;
+    }
+
+    tr.innerHTML = `
+      <td style="padding: 10px 12px; font-weight: 600;">${escapeHtml(u.username)}${superBadge}${selfBadge}</td>
+      <td style="padding: 10px 12px;">${escapeHtml(u.display_name || u.username)}</td>
+      <td style="padding: 10px 12px;">${authBadge}</td>
+      <td style="padding: 10px 12px;">${roleCellHtml}</td>
       <td style="padding: 10px 12px; font-size: 12px; color: var(--text-secondary);">${lastLogin}</td>
-      <td style="padding: 10px 12px; text-align: right; white-space: nowrap;">
-        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 11px;" onclick="resetHouseholdUserPassword('${escapeHtml(uid)}', '${escapeHtml(u.username)}')">${ssoProv ? "🔑 Set Local PW" : "🔑 Reset PW"}</button>
-        <button type="button" class="btn btn-danger btn-sm" style="font-size: 11px; margin-left: 4px;" onclick="deleteHouseholdUser('${escapeHtml(uid)}', '${escapeHtml(u.username)}')">🗑️</button>
-      </td>
+      <td style="padding: 10px 12px; text-align: right; white-space: nowrap;">${actionsCellHtml}</td>
     `;
     tbody.appendChild(tr);
   });
+}
+
+function openEditUserModal(userId) {
+  const u = cachedUsersList.find(item => (item.id || item.user_id) === userId);
+  if (!u) {
+    showToast("Could not locate user profile details.", "warning");
+    return;
+  }
+  const modal = document.getElementById("editUserModal");
+  if (!modal) return;
+
+  const isSuper = Boolean(u.is_super_admin);
+  const isSelf = Boolean(u.is_self || (currentUsersMeta.current_user_id && currentUsersMeta.current_user_id === (u.id || u.user_id)));
+
+  document.getElementById("editUserId").value = u.id || u.user_id || "";
+  document.getElementById("editUserUsername").value = u.username || "";
+  document.getElementById("editUserDisplayName").value = u.display_name || "";
+  document.getElementById("editUserRole").value = u.role || "member";
+  document.getElementById("editUserAuthSource").value = (u.sso_provider || "").trim().toLowerCase();
+  document.getElementById("editUserPassword").value = "";
+
+  const subtitle = document.getElementById("editUserModalSubtitle");
+  if (subtitle) {
+    subtitle.innerText = isSuper
+      ? "Editing primary Super Admin profile. Role changes remain locked for safety."
+      : `Editing profile for ${u.display_name || u.username}.`;
+  }
+
+  const roleEl = document.getElementById("editUserRole");
+  const roleHint = document.getElementById("editUserRoleHint");
+  if (roleEl && roleHint) {
+    if (isSuper) {
+      roleEl.disabled = true;
+      roleHint.style.display = "block";
+      roleHint.innerText = "Primary Super Admin role is permanently locked to Admin.";
+    } else if (isSelf) {
+      roleEl.disabled = true;
+      roleHint.style.display = "block";
+      roleHint.innerText = "You cannot demote your own active administrator account.";
+    } else {
+      roleEl.disabled = false;
+      roleHint.style.display = "none";
+      roleHint.innerText = "";
+    }
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeEditUserModal() {
+  const modal = document.getElementById("editUserModal");
+  if (modal) modal.style.display = "none";
+}
+
+async function saveEditedUserProfile() {
+  const uid = document.getElementById("editUserId")?.value || "";
+  const username = document.getElementById("editUserUsername")?.value.trim() || "";
+  const displayName = document.getElementById("editUserDisplayName")?.value.trim() || username;
+  const roleEl = document.getElementById("editUserRole");
+  const ssoProvider = document.getElementById("editUserAuthSource")?.value || "";
+  const password = document.getElementById("editUserPassword")?.value || "";
+
+  if (!uid || !username) {
+    showToast("Username is required.", "warning");
+    return;
+  }
+  if (password && password.length < 8) {
+    showToast("New password must be at least 8 characters.", "warning");
+    return;
+  }
+
+  const payload = {
+    username,
+    display_name: displayName,
+    sso_provider: ssoProvider
+  };
+  if (roleEl && !roleEl.disabled) {
+    payload.role = roleEl.value;
+  }
+  if (password) {
+    payload.password = password;
+  }
+
+  const btn = document.getElementById("btnSaveEditUser");
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "💾 Saving...";
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(uid)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast(`Updated user profile '${username}'.`, "success");
+      closeEditUserModal();
+      if (currentUsersMeta.current_user_id && currentUsersMeta.current_user_id === uid && data.user) {
+        if (typeof currentUser === "object" && currentUser) {
+          currentUser.username = data.user.username;
+          currentUser.display_name = data.user.display_name;
+        }
+        const greetEl = document.getElementById("userGreeting");
+        if (greetEl) greetEl.innerText = `Welcome, ${data.user.display_name || data.user.username}`;
+        const sideNameEl = document.getElementById("sidebarAdminName");
+        if (sideNameEl) sideNameEl.innerText = data.user.display_name || data.user.username;
+      }
+      await loadHouseholdUsers();
+    } else {
+      showToast(data.error || "Failed to update user profile.", "danger");
+    }
+  } catch (err) {
+    showToast("Network error saving user profile.", "danger");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "💾 Save Changes";
+    }
+  }
 }
 
 function onNewUserAuthSourceChange() {
@@ -204,30 +367,6 @@ async function changeHouseholdUserRole(userId, role) {
     }
   } catch (err) {
     showToast("Network error updating role.", "danger");
-  }
-}
-
-async function resetHouseholdUserPassword(userId, username) {
-  const newPassword = prompt(`Enter new password for '${username}' (minimum 8 characters):`);
-  if (!newPassword) return;
-  if (newPassword.length < 8) {
-    showToast("Password must be at least 8 characters.", "warning");
-    return;
-  }
-  try {
-    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: newPassword })
-    });
-    const data = await res.json();
-    if (res.ok && data.ok) {
-      showToast(`Password updated for '${username}'.`, "success");
-    } else {
-      showToast(data.error || "Failed to reset password.", "danger");
-    }
-  } catch (err) {
-    showToast("Network error resetting password.", "danger");
   }
 }
 

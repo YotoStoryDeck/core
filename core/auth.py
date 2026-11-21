@@ -208,6 +208,7 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
         role = str(db_user.get("role") or "member").strip().lower()
         uid = db_user["id"]
         dname = db_user.get("display_name") or sso_display_name
+        is_super = bool(db_user.get("is_super_admin", False))
     else:
         admin_group = str(sso_cfg.get("admin_group") or "").strip().lower()
         if admin_group:
@@ -218,6 +219,7 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
 
         uid = f"sso_{sso_username}"
         dname = sso_display_name
+        is_super = False
 
         if sso_cfg.get("auto_provision_users", False):
             try:
@@ -227,9 +229,11 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
                     display_name=sso_display_name,
                     role=role,
                     sso_provider=provider_label.lower(),
+                    is_super_admin=False,
                 )
                 uid = created["id"]
                 dname = created.get("display_name") or sso_display_name
+                is_super = bool(created.get("is_super_admin", False))
             except Exception as e:
                 logger.debug("SSO auto-provision skipped/raced for '%s': %s", sso_username, e)
                 existing = database.get_user_by_username(sso_username)
@@ -237,6 +241,7 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
                     uid = existing["id"]
                     dname = existing.get("display_name") or sso_display_name
                     role = str(existing.get("role") or role).strip().lower()
+                    is_super = bool(existing.get("is_super_admin", False))
 
     if require_admin_role and role != "admin":
         return None
@@ -246,6 +251,7 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
         "username": sso_username,
         "display_name": dname,
         "role": role,
+        "is_super_admin": is_super,
         "is_lan_guest": False,
         "auth_type": "sso",
         "sso_provider": provider_label,
@@ -281,6 +287,7 @@ def get_current_user() -> Optional[Dict[str, Any]]:
                 "username": "api_client",
                 "display_name": "Master API Key",
                 "role": "admin",
+                "is_super_admin": True,
                 "is_lan_guest": False,
                 "auth_type": "api_key"
             }
@@ -300,6 +307,7 @@ def get_current_user() -> Optional[Dict[str, Any]]:
                 "username": db_user["username"],
                 "display_name": db_user["display_name"] or db_user["username"],
                 "role": db_user.get("role", "member"),
+                "is_super_admin": bool(db_user.get("is_super_admin", False)),
                 "is_lan_guest": False,
                 "auth_type": "session"
             }
@@ -308,6 +316,7 @@ def get_current_user() -> Optional[Dict[str, Any]]:
             "username": session.get("username", "user"),
             "display_name": session.get("display_name", "User"),
             "role": session.get("role", "member"),
+            "is_super_admin": bool(session.get("is_super_admin", False)),
             "is_lan_guest": False,
             "auth_type": "session"
         }
@@ -323,6 +332,7 @@ def get_current_user() -> Optional[Dict[str, Any]]:
                     "username": "lan_guest",
                     "display_name": "LAN Guest (Sitter)",
                     "role": "member",
+                    "is_super_admin": False,
                     "is_lan_guest": True,
                     "auth_type": "lan_guest"
                 }
@@ -357,6 +367,7 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "username": "api_client",
                 "display_name": "Master API Key",
                 "role": "admin",
+                "is_super_admin": True,
                 "is_lan_guest": False,
                 "auth_type": "api_key"
             }
@@ -376,6 +387,7 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "username": db_user["username"],
                 "display_name": db_user["display_name"] or db_user["username"],
                 "role": "admin",
+                "is_super_admin": bool(db_user.get("is_super_admin", False)),
                 "is_lan_guest": False,
                 "auth_type": "session"
             }
@@ -385,6 +397,7 @@ def get_current_admin_user() -> Optional[Dict[str, Any]]:
                 "username": session.get("username", "admin"),
                 "display_name": session.get("display_name", "Admin"),
                 "role": "admin",
+                "is_super_admin": bool(session.get("is_super_admin", False)),
                 "is_lan_guest": False,
                 "auth_type": "session"
             }

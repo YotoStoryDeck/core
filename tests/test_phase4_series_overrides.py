@@ -111,7 +111,7 @@ class TestPhase4SeriesOverrides(unittest.TestCase):
                 """)
                 database.run_schema_migrations(c10)
                 new_ver = c10.execute("PRAGMA user_version;").fetchone()[0]
-                self.assertEqual(new_ver, 11)
+                self.assertGreaterEqual(new_ver, 11)
                 ov_tbl = c10.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='media_series_overrides';"
                 ).fetchone()

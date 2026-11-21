@@ -150,7 +150,7 @@ async function checkAuthStatus() {
         authBadge.innerText = authText;
       }
       if (sidebarName) sidebarName.innerText = displayName;
-      if (sidebarRole) sidebarRole.innerText = `${authText} · Admin`;
+      if (sidebarRole) sidebarRole.innerText = `${authText} · ${currentUser.is_super_admin ? "Super Admin" : "Admin"}`;
 
       if (!initialDataLoaded) {
         initialDataLoaded = true;
