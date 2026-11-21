@@ -143,4 +143,4 @@ This project utilizes artificial intelligence (AI) tools, including Anthropic Cl
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE.md).
