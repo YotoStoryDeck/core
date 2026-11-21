@@ -527,8 +527,17 @@ function renderSsoConfig(data) {
 
   ssoBaselineSnapshot = JSON.stringify(readSsoFormValues());
   setSsoDirty(false);
+  updateSsoModeWarning();
   bindSsoDirtyListeners();
   updateUsersKpis();
+}
+
+function updateSsoModeWarning() {
+  const warn = document.getElementById("ssoDualModeWarning");
+  if (!warn) return;
+  const fa = Boolean(document.getElementById("ssoForwardAuthEnabled")?.checked);
+  const oidc = Boolean(document.getElementById("ssoOidcEnabled")?.checked);
+  warn.style.display = (fa && oidc) ? "block" : "none";
 }
 
 async function saveLanSitterToggle() {
