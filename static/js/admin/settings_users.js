@@ -46,7 +46,7 @@ function updateUsersKpis() {
   const superAdmins = cachedUsersList.filter(u => Boolean(u.is_super_admin)).length;
   const admins = cachedUsersList.filter(u => u.role === "admin" && !u.is_super_admin).length;
   const members = cachedUsersList.filter(u => u.role !== "admin").length;
-  const ssoUsers = cachedUsersList.filter(u => Boolean(u.sso_provider)).length;
+  const ssoUsers = cachedUsersList.filter(u => Boolean(u.sso_provider || u.sso_subject)).length;
 
   const kpiTotal = document.getElementById("kpiTotalUsers");
   const kpiBreak = document.getElementById("kpiUsersBreakdown");
@@ -99,7 +99,7 @@ function updateUsersKpis() {
   }
   if (kpiSsoSub) {
     kpiSsoSub.innerText = fwdEnabled
-      ? `Header: ${cfg.header_username || "X-authentik-username"}`
+      ? `UID Header: ${cfg.header_subject || "X-authentik-uid"}`
       : "Local password authentication only";
   }
 }
@@ -125,9 +125,19 @@ function renderHouseholdUsers(users) {
     const canDelete = (u.can_delete !== undefined) ? Boolean(u.can_delete) : (!isSuper && !isSelf);
 
     const ssoProv = (u.sso_provider || "").trim();
-    const authBadge = ssoProv
-      ? `<span class="badge badge-info" title="Authenticated via SSO / Reverse Proxy">🛡️ SSO: ${escapeHtml(ssoProv)}</span>`
-      : `<span class="badge badge-subtle">🔑 Local</span>`;
+    const ssoSub = (u.sso_subject || "").trim();
+    let authBadge = `<span class="badge badge-subtle">🔑 Local</span>`;
+    if (ssoProv && ssoSub) {
+      authBadge = `<span class="badge badge-info" title="Immutable SSO Subject bound: ${escapeHtml(ssoSub)}">🛡️ ${escapeHtml(ssoProv)} · UID</span>`;
+    } else if (ssoProv) {
+      authBadge = `<span class="badge badge-info" title="Pre-linked to ${escapeHtml(ssoProv)}; UID binds on first SSO login">🛡️ ${escapeHtml(ssoProv)} · Pending</span>`;
+    } else if (ssoSub) {
+      authBadge = `<span class="badge badge-info" title="Bound SSO Subject: ${escapeHtml(ssoSub)}">🛡️ SSO · UID</span>`;
+    }
+
+    const emailSub = u.email
+      ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(u.email)}</div>`
+      : "";
     const lastLogin = u.last_login ? escapeHtml(String(u.last_login).replace("T", " ").slice(0, 16)) : `<span style="color: var(--text-muted);">Never</span>`;
 
     const superBadge = isSuper ? ` <span class="badge badge-warning" title="Primary Super Admin account — cannot be modified or deleted by other admins">👑 Super Admin</span>` : "";
@@ -158,7 +168,7 @@ function renderHouseholdUsers(users) {
     }
 
     tr.innerHTML = `
-      <td style="padding: 10px 12px; font-weight: 600;">${escapeHtml(u.username)}${superBadge}${selfBadge}</td>
+      <td style="padding: 10px 12px; font-weight: 600;">${escapeHtml(u.username)}${superBadge}${selfBadge}${emailSub}</td>
       <td style="padding: 10px 12px;">${escapeHtml(u.display_name || u.username)}</td>
       <td style="padding: 10px 12px;">${authBadge}</td>
       <td style="padding: 10px 12px;">${roleCellHtml}</td>
@@ -184,8 +194,12 @@ function openEditUserModal(userId) {
   document.getElementById("editUserId").value = u.id || u.user_id || "";
   document.getElementById("editUserUsername").value = u.username || "";
   document.getElementById("editUserDisplayName").value = u.display_name || "";
+  const emailEl = document.getElementById("editUserEmail");
+  if (emailEl) emailEl.value = u.email || "";
   document.getElementById("editUserRole").value = u.role || "member";
   document.getElementById("editUserAuthSource").value = (u.sso_provider || "").trim().toLowerCase();
+  const subEl = document.getElementById("editUserSsoSubject");
+  if (subEl) subEl.value = u.sso_subject || "";
   document.getElementById("editUserPassword").value = "";
 
   const subtitle = document.getElementById("editUserModalSubtitle");
@@ -216,6 +230,14 @@ function openEditUserModal(userId) {
   modal.style.display = "flex";
 }
 
+function unlinkEditUserSsoSubject() {
+  const subEl = document.getElementById("editUserSsoSubject");
+  if (subEl) {
+    subEl.value = "";
+  }
+  showToast("Cleared bound SSO Subject UID. Save changes to allow re-linking on next SSO login.", "info");
+}
+
 function closeEditUserModal() {
   const modal = document.getElementById("editUserModal");
   if (modal) modal.style.display = "none";
@@ -225,8 +247,10 @@ async function saveEditedUserProfile() {
   const uid = document.getElementById("editUserId")?.value || "";
   const username = document.getElementById("editUserUsername")?.value.trim() || "";
   const displayName = document.getElementById("editUserDisplayName")?.value.trim() || username;
+  const email = document.getElementById("editUserEmail")?.value.trim() || "";
   const roleEl = document.getElementById("editUserRole");
   const ssoProvider = document.getElementById("editUserAuthSource")?.value || "";
+  const ssoSubject = document.getElementById("editUserSsoSubject")?.value.trim() || "";
   const password = document.getElementById("editUserPassword")?.value || "";
 
   if (!uid || !username) {
@@ -241,7 +265,9 @@ async function saveEditedUserProfile() {
   const payload = {
     username,
     display_name: displayName,
-    sso_provider: ssoProvider
+    email,
+    sso_provider: ssoProvider,
+    sso_subject: ssoSubject
   };
   if (roleEl && !roleEl.disabled) {
     payload.role = roleEl.value;
@@ -308,12 +334,14 @@ function onNewUserAuthSourceChange() {
 async function createNewHouseholdUser() {
   const usernameEl = document.getElementById("newAdminUsername");
   const displayEl = document.getElementById("newAdminDisplayName");
+  const emailEl = document.getElementById("newAdminEmail");
   const roleEl = document.getElementById("newAdminRole");
   const sourceEl = document.getElementById("newAdminAuthSource");
   const passwordEl = document.getElementById("newAdminPassword");
 
   const username = usernameEl?.value.trim() || "";
   const display_name = displayEl?.value.trim() || username;
+  const email = emailEl?.value.trim() || "";
   const role = roleEl?.value || "member";
   const sso_provider = sourceEl?.value.trim() || "";
   const password = passwordEl?.value || "";
@@ -331,13 +359,14 @@ async function createNewHouseholdUser() {
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, display_name, role, sso_provider, password })
+      body: JSON.stringify({ username, display_name, email, role, sso_provider, password })
     });
     const data = await res.json();
     if (res.ok && data.ok) {
       showToast(`Created ${sso_provider ? "SSO-linked " : ""}user '${username}' (${role}).`, "success");
       if (usernameEl) usernameEl.value = "";
       if (displayEl) displayEl.value = "";
+      if (emailEl) emailEl.value = "";
       if (passwordEl) passwordEl.value = "";
       if (sourceEl) sourceEl.value = "";
       onNewUserAuthSourceChange();
@@ -398,13 +427,16 @@ function readSsoFormValues() {
   return {
     forward_auth_enabled: Boolean(document.getElementById("ssoForwardAuthEnabled")?.checked),
     provider_name: document.getElementById("ssoProviderName")?.value || "Authentik",
-    default_role: document.getElementById("ssoDefaultRole")?.value || "admin",
+    default_role: document.getElementById("ssoDefaultRole")?.value || "member",
     admin_group: document.getElementById("ssoAdminGroup")?.value.trim() || "",
+    header_subject: document.getElementById("ssoHeaderSubject")?.value.trim() || "X-authentik-uid",
     header_username: document.getElementById("ssoHeaderUsername")?.value.trim() || "X-authentik-username",
+    header_email: document.getElementById("ssoHeaderEmail")?.value.trim() || "X-authentik-email",
     header_display_name: document.getElementById("ssoHeaderDisplayName")?.value.trim() || "X-authentik-name",
     header_groups: document.getElementById("ssoHeaderGroups")?.value.trim() || "X-authentik-groups",
     extra_trusted_proxies: extraList,
     logout_url: document.getElementById("ssoLogoutUrl")?.value.trim() || "",
+    auto_link_existing_users: Boolean(document.getElementById("ssoAutoLinkExistingUsers")?.checked),
     auto_provision_users: Boolean(document.getElementById("ssoAutoProvisionUsers")?.checked),
     oidc_enabled: Boolean(document.getElementById("ssoOidcEnabled")?.checked),
     oidc_issuer_url: document.getElementById("ssoOidcIssuerUrl")?.value.trim() || "",
@@ -479,14 +511,17 @@ function renderSsoConfig(data) {
 
   setChecked("ssoForwardAuthEnabled", cfg.forward_auth_enabled !== false);
   setVal("ssoProviderName", cfg.provider_name || "Authentik");
-  setVal("ssoDefaultRole", cfg.default_role || "admin");
+  setVal("ssoDefaultRole", cfg.default_role || "member");
   setVal("ssoAdminGroup", cfg.admin_group || "");
+  setVal("ssoHeaderSubject", cfg.header_subject || "X-authentik-uid");
   setVal("ssoHeaderUsername", cfg.header_username || "X-authentik-username");
+  setVal("ssoHeaderEmail", cfg.header_email || "X-authentik-email");
   setVal("ssoHeaderDisplayName", cfg.header_display_name || "X-authentik-name");
   setVal("ssoHeaderGroups", cfg.header_groups || "X-authentik-groups");
   setVal("ssoExtraTrustedProxies", Array.isArray(cfg.extra_trusted_proxies) ? cfg.extra_trusted_proxies.join(", ") : "");
   setVal("ssoLogoutUrl", cfg.logout_url || "");
-  setChecked("ssoAutoProvisionUsers", cfg.auto_provision_users);
+  setChecked("ssoAutoLinkExistingUsers", cfg.auto_link_existing_users !== false);
+  setChecked("ssoAutoProvisionUsers", cfg.auto_provision_users !== false);
   setChecked("ssoOidcEnabled", cfg.oidc_enabled);
   setVal("ssoOidcIssuerUrl", cfg.oidc_issuer_url || "");
   setVal("ssoOidcClientId", cfg.oidc_client_id || "");

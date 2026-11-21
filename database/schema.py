@@ -26,6 +26,8 @@ def init_db():
                 role TEXT DEFAULT 'admin',
                 sso_provider TEXT DEFAULT '',
                 is_super_admin BOOLEAN DEFAULT 0,
+                email TEXT DEFAULT '',
+                sso_subject TEXT DEFAULT '',
                 last_login DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -237,7 +239,7 @@ def init_db():
 # ============================================================================
 # Schema Migrations Engine (PRAGMA user_version)
 # ============================================================================
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 def run_schema_migrations(conn: sqlite3.Connection):
     """
     Applies incremental database schema migrations sequentially using SQLite's
@@ -479,6 +481,28 @@ def run_schema_migrations(conn: sqlite3.Connection):
                         conn.execute("UPDATE admin_users SET is_super_admin = 1 WHERE id = ?;", (first_admin[0],))
             conn.execute("PRAGMA user_version = 12;")
         logger.info("Migrated SQLite schema to version 12 (added is_super_admin to admin_users).")
+
+    # Version 12 -> 13: Email & Immutable SSO Subject Binding on admin_users
+    if version < 13:
+        with conn:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_users';")
+            if cur.fetchone():
+                cur.execute("PRAGMA table_info(admin_users);")
+                cols = [c[1] for c in cur.fetchall()]
+                if "email" not in cols:
+                    conn.execute("ALTER TABLE admin_users ADD COLUMN email TEXT DEFAULT '';")
+                if "sso_subject" not in cols:
+                    conn.execute("ALTER TABLE admin_users ADD COLUMN sso_subject TEXT DEFAULT '';")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_sso_subject "
+                    "ON admin_users(sso_provider, sso_subject) WHERE sso_subject != '';"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_admin_users_email "
+                    "ON admin_users(lower(email));"
+                )
+            conn.execute("PRAGMA user_version = 13;")
+        logger.info("Migrated SQLite schema to version 13 (added email and sso_subject to admin_users).")
 # ============================================================================
 # Password Hashing & Security Helpers (PBKDF2-HMAC-SHA256)
 # ============================================================================

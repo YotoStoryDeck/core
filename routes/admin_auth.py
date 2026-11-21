@@ -155,17 +155,19 @@ def list_users():
 @admin_auth_bp.route("/api/admin/users", methods=["POST"])
 @require_admin
 def create_user():
-    """Creates a new user account with specified role ('admin' or 'member') and optional SSO link."""
+    """Creates a new user account with specified role, email, and optional SSO provider/subject link."""
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
     display_name = (data.get("display_name") or username or "User").strip()
+    email = (data.get("email") or "").strip().lower()
     role = str(data.get("role") or "member").strip().lower()
     sso_provider = (data.get("sso_provider") or "").strip()
+    sso_subject = (data.get("sso_subject") or "").strip()
 
     if not username:
         return jsonify({"ok": False, "error": "Username is required."}), 400
-    if sso_provider and not password:
+    if (sso_provider or sso_subject) and not password:
         # Pre-linked SSO users authenticate via reverse proxy / IdP and receive a strong unusable local placeholder secret
         password = secrets.token_urlsafe(32)
     elif len(password) < 8:
@@ -176,6 +178,10 @@ def create_user():
     existing = database.get_user_by_username(username)
     if existing:
         return jsonify({"ok": False, "error": f"Username '{username}' already exists."}), 409
+    if email and database.get_user_by_email(email):
+        return jsonify({"ok": False, "error": f"Email '{email}' is already associated with another account."}), 409
+    if sso_subject and database.get_user_by_sso_subject(sso_subject, sso_provider):
+        return jsonify({"ok": False, "error": f"SSO Subject UID '{sso_subject}' is already linked to another account."}), 409
 
     try:
         user = database.create_admin_user(
@@ -184,6 +190,8 @@ def create_user():
             display_name=display_name,
             role=role,
             sso_provider=sso_provider,
+            email=email,
+            sso_subject=sso_subject,
             is_super_admin=False
         )
         return jsonify({"ok": True, "message": f"User '{username}' created successfully.", "user": user}), 201
@@ -194,7 +202,7 @@ def create_user():
 @admin_auth_bp.route("/api/admin/users/<user_id>", methods=["PUT"])
 @require_admin
 def update_user(user_id):
-    """Updates user username, display name, role, SSO provider link, or password."""
+    """Updates user username, email, display name, role, SSO provider/subject link, or password."""
     data = request.get_json(silent=True) or {}
     actor = get_current_admin_user() or {}
     user = database.get_user_by_id(user_id)
@@ -228,6 +236,22 @@ def update_user(user_id):
             if existing and existing["id"] != user_id:
                 return jsonify({"ok": False, "error": f"Username '{new_username}' already exists."}), 409
 
+    # Validate email uniqueness before partial mutations
+    if "email" in data:
+        new_email = (data.get("email") or "").strip().lower()
+        if new_email:
+            existing_em = database.get_user_by_email(new_email)
+            if existing_em and existing_em["id"] != user_id:
+                return jsonify({"ok": False, "error": f"Email '{new_email}' is already associated with another account."}), 409
+
+    # Validate SSO subject uniqueness before partial mutations
+    new_provider = str(data.get("sso_provider") if "sso_provider" in data else (user.get("sso_provider") or "")).strip()
+    new_subject = str(data.get("sso_subject") if "sso_subject" in data else (user.get("sso_subject") or "")).strip()
+    if new_subject and ("sso_provider" in data or "sso_subject" in data):
+        existing_sub = database.get_user_by_sso_subject(new_subject, new_provider)
+        if existing_sub and existing_sub["id"] != user_id:
+            return jsonify({"ok": False, "error": f"SSO Subject UID '{new_subject}' is already linked to another account."}), 409
+
     # Validate password length before applying partial mutations
     if data.get("password"):
         new_pw = data.get("password")
@@ -240,11 +264,20 @@ def update_user(user_id):
         except ValueError as ve:
             return jsonify({"ok": False, "error": str(ve)}), 409
 
+    if "email" in data:
+        try:
+            database.update_user_email(user_id, data.get("email") or "")
+        except ValueError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 409
+
     if "display_name" in data:
         database.update_user_display_name(user_id, (data.get("display_name") or "").strip())
 
-    if "sso_provider" in data:
-        database.update_user_sso_provider(user_id, str(data.get("sso_provider") or "").strip())
+    if "sso_provider" in data or "sso_subject" in data:
+        try:
+            database.update_user_sso_identity(user_id, new_provider, new_subject)
+        except ValueError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 409
 
     if "role" in data:
         role = str(data.get("role") or "").strip().lower()
@@ -332,19 +365,20 @@ def admin_sso_config():
         current_sso = database.get_sso_config()
         merged = dict(current_sso)
 
-        for bool_key in ("forward_auth_enabled", "auto_provision_users", "oidc_enabled"):
+        for bool_key in ("forward_auth_enabled", "auto_link_existing_users", "auto_provision_users", "oidc_enabled"):
             if bool_key in incoming_sso:
                 merged[bool_key] = bool(incoming_sso.get(bool_key))
 
         for str_key in (
-            "provider_name", "header_username", "header_display_name", "header_groups",
-            "admin_group", "logout_url", "oidc_issuer_url", "oidc_client_id"
+            "provider_name", "header_subject", "header_username", "header_email",
+            "header_display_name", "header_groups", "admin_group", "logout_url",
+            "oidc_issuer_url", "oidc_client_id"
         ):
             if str_key in incoming_sso and incoming_sso.get(str_key) is not None:
                 merged[str_key] = str(incoming_sso.get(str_key)).strip()
 
         if "default_role" in incoming_sso:
-            role_val = str(incoming_sso.get("default_role") or "admin").strip().lower()
+            role_val = str(incoming_sso.get("default_role") or "member").strip().lower()
             if role_val not in ("admin", "member"):
                 return jsonify({"ok": False, "error": "SSO default_role must be 'admin' or 'member'."}), 400
             merged["default_role"] = role_val

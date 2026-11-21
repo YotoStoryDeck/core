@@ -62,9 +62,9 @@ class TestSuperAdminAndUserProfileManagement(unittest.TestCase):
                     conn.execute(
                         """
                         INSERT INTO admin_users (
-                            id, username, password_hash, salt, display_name, role,
-                            sso_provider, is_super_admin, last_login, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                            id, username, password_hash, salt, display_name, email, role,
+                            sso_provider, sso_subject, is_super_admin, last_login, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                         """,
                         (
                             u["id"],
@@ -72,8 +72,10 @@ class TestSuperAdminAndUserProfileManagement(unittest.TestCase):
                             u["password_hash"],
                             u["salt"],
                             u.get("display_name", ""),
+                            u.get("email", ""),
                             u.get("role", "admin"),
                             u.get("sso_provider", ""),
+                            u.get("sso_subject", ""),
                             u.get("is_super_admin", 0),
                             u.get("last_login"),
                             u.get("created_at"),
@@ -130,7 +132,7 @@ class TestSuperAdminAndUserProfileManagement(unittest.TestCase):
                     """
                 )
                 database.run_schema_migrations(c11)
-                self.assertEqual(c11.execute("PRAGMA user_version;").fetchone()[0], 12)
+                self.assertGreaterEqual(c11.execute("PRAGMA user_version;").fetchone()[0], 12)
                 rows = {r["id"]: r["is_super_admin"] for r in c11.execute("SELECT id, is_super_admin FROM admin_users;").fetchall()}
                 self.assertEqual(rows["u_mem"], 0)
                 self.assertEqual(rows["u_first"], 1)

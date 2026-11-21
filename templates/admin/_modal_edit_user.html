@@ -3,7 +3,7 @@
     <div class="modal-card" style="max-width: 460px;">
       <div class="modal-header">
         <h2 style="margin-bottom: 4px;">✏️ Edit User Profile</h2>
-        <p class="text-secondary" style="margin-bottom: 16px;" id="editUserModalSubtitle">Update account username, display name, role, SSO link, or password.</p>
+        <p class="text-secondary" style="margin-bottom: 16px;" id="editUserModalSubtitle">Update account username, display name, email, role, SSO binding, or password.</p>
       </div>
       <form id="editUserForm" onsubmit="event.preventDefault(); saveEditedUserProfile();">
         <input type="hidden" id="editUserId">
@@ -19,6 +19,11 @@
         </div>
 
         <div class="form-group">
+          <label for="editUserEmail">Email Address (SSO Initial Match)</label>
+          <input type="email" id="editUserEmail" class="form-control" autocomplete="off" placeholder="user@example.com">
+        </div>
+
+        <div class="form-group">
           <label for="editUserRole">Role</label>
           <select id="editUserRole" class="form-control">
             <option value="member">Member (Parent Portal Only)</option>
@@ -28,7 +33,7 @@
         </div>
 
         <div class="form-group">
-          <label for="editUserAuthSource">Authentication / SSO Link</label>
+          <label for="editUserAuthSource">Authentication / SSO Provider</label>
           <select id="editUserAuthSource" class="form-control">
             <option value="">Local Password Account</option>
             <option value="authentik">Authentik SSO</option>
@@ -36,6 +41,14 @@
             <option value="cloudflare_access">Cloudflare Access SSO</option>
             <option value="sso">Generic Reverse-Proxy SSO</option>
           </select>
+        </div>
+
+        <div class="form-group">
+          <label for="editUserSsoSubject">Bound SSO Subject / UID</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input type="text" id="editUserSsoSubject" class="form-control" autocomplete="off" placeholder="Auto-bound on first SSO login" style="font-family: monospace; font-size: 12px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnUnlinkSsoSubject" onclick="unlinkEditUserSsoSubject()" title="Clear bound SSO Subject UID so the next login can re-link">Unlink</button>
+          </div>
         </div>
 
         <div class="form-group">

@@ -309,6 +309,7 @@ class TestUIOverhaulAndSSO(unittest.TestCase):
         sso_res = self.client.post("/api/admin/users", json={
             "username": "sso_ui_prelinked",
             "display_name": "Authentik Uncle",
+            "email": "sso_ui_uncle@example.com",
             "role": "member",
             "sso_provider": "authentik",
             "password": "",
@@ -316,6 +317,181 @@ class TestUIOverhaulAndSSO(unittest.TestCase):
         self.assertEqual(sso_res.status_code, 201)
         u = sso_res.get_json()["user"]
         self.assertEqual(u["sso_provider"], "authentik")
+        self.assertEqual(u["email"], "sso_ui_uncle@example.com")
+
+    def test_07_sso_initial_match_by_email_then_username_and_uid_binding(self):
+        """Matches unbound accounts by email first, then username, binds immutable UID, and survives later renames."""
+        # 1. Pre-existing local account with different username but matching email
+        by_email_user = database.create_admin_user(
+            "sso_ui_local_alice",
+            "AliceSecret1!",
+            display_name="Alice Local",
+            role="admin",
+            email="sso_ui_alice@family.local",
+        )
+        res1 = self.client.get(
+            "/api/auth/me",
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            headers={
+                "X-authentik-uid": "uid_test_alice_001",
+                "X-authentik-username": "alice_renamed_in_idp",
+                "X-authentik-email": "SSO_UI_ALICE@family.local",
+            },
+        )
+        self.assertEqual(res1.status_code, 200)
+        d1 = res1.get_json()["user"]
+        self.assertEqual(d1["id"], by_email_user["id"])
+        self.assertEqual(d1["role"], "admin")
+        self.assertEqual(d1["sso_subject"], "uid_test_alice_001")
+
+        # Subsequent login with BOTH username and email changed in Authentik still resolves by immutable UID
+        res1_renamed = self.client.get(
+            "/api/auth/me",
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            headers={
+                "X-authentik-uid": "uid_test_alice_001",
+                "X-authentik-username": "totally_new_handle",
+                "X-authentik-email": "new.alice@family.local",
+            },
+        )
+        self.assertEqual(res1_renamed.status_code, 200)
+        self.assertEqual(res1_renamed.get_json()["user"]["id"], by_email_user["id"])
+
+        # 2. Pre-existing local account matched by case-insensitive username also binds UID & backfills empty email
+        by_uname_user = database.create_admin_user(
+            "sso_ui_local_bob",
+            "BobSecret1!",
+            display_name="Bob Local",
+            role="member",
+        )
+        res2 = self.client.get(
+            "/api/auth/me",
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            headers={
+                "X-authentik-uid": "uid_test_bob_002",
+                "X-authentik-username": "SSO_UI_LOCAL_BOB",
+                "X-authentik-email": "sso_ui_bob@family.local",
+            },
+        )
+        self.assertEqual(res2.status_code, 200)
+        d2 = res2.get_json()["user"]
+        self.assertEqual(d2["id"], by_uname_user["id"])
+        refetched_bob = database.get_user_by_id(by_uname_user["id"])
+        self.assertEqual(refetched_bob["sso_subject"], "uid_test_bob_002")
+        self.assertEqual(refetched_bob["email"], "sso_ui_bob@family.local")
+
+    def test_08_sso_unmatched_user_auto_added_and_prevents_hijack(self):
+        """Unmatched SSO user is auto-added; another UID with same username/email cannot hijack the bound account."""
+        # Completely new SSO user -> auto-added as 'member' with bound UID & email
+        res_new = self.client.get(
+            "/api/auth/me",
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            headers={
+                "X-authentik-uid": "uid_test_carol_003",
+                "X-authentik-username": "sso_ui_carol",
+                "X-authentik-email": "sso_ui_carol@family.local",
+                "X-authentik-name": "Carol Sitter",
+            },
+        )
+        self.assertEqual(res_new.status_code, 200)
+        u_carol = res_new.get_json()["user"]
+        self.assertEqual(u_carol["role"], "member")
+        self.assertEqual(u_carol["sso_subject"], "uid_test_carol_003")
+        carol_db = database.get_user_by_sso_subject("uid_test_carol_003", "authentik")
+        self.assertIsNotNone(carol_db)
+        self.assertEqual(carol_db["email"], "sso_ui_carol@family.local")
+
+        # Another UID claiming Carol's username and email MUST NOT resolve to Carol's existing DB ID
+        res_other = self.client.get(
+            "/api/auth/me",
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            headers={
+                "X-authentik-uid": "uid_test_other_999",
+                "X-authentik-username": "sso_ui_carol",
+                "X-authentik-email": "sso_ui_carol@family.local",
+            },
+        )
+        self.assertEqual(res_other.status_code, 200)
+        u_other = res_other.get_json()["user"]
+        self.assertNotEqual(u_other["id"], carol_db["id"])
+        self.assertTrue(u_other["username"].startswith("sso_ui_carol_"))
+        self.assertEqual(u_other["sso_subject"], "uid_test_other_999")
+
+    def test_09_schema_v13_migration_and_admin_email_subject_crud(self):
+        """Verifies schema >= 13 migration, admin UI fields, duplicate email 409, and UID unlink via PUT."""
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+
+        conn = database.get_db_connection()
+        try:
+            self.assertGreaterEqual(conn.execute("PRAGMA user_version;").fetchone()[0], 13)
+            cols = [c[1] for c in conn.execute("PRAGMA table_info(admin_users);").fetchall()]
+            self.assertIn("email", cols)
+            self.assertIn("sso_subject", cols)
+        finally:
+            conn.close()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p12 = Path(tmpdir) / "v12.db"
+            c12 = sqlite3.connect(p12)
+            try:
+                c12.execute(
+                    """
+                    CREATE TABLE admin_users (
+                        id TEXT PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        salt TEXT NOT NULL,
+                        display_name TEXT DEFAULT '',
+                        role TEXT DEFAULT 'admin',
+                        sso_provider TEXT DEFAULT '',
+                        is_super_admin BOOLEAN DEFAULT 0,
+                        last_login DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+                c12.execute("PRAGMA user_version = 12;")
+                database.run_schema_migrations(c12)
+                self.assertGreaterEqual(c12.execute("PRAGMA user_version;").fetchone()[0], 13)
+                m_cols = [c[1] for c in c12.execute("PRAGMA table_info(admin_users);").fetchall()]
+                self.assertIn("email", m_cols)
+                self.assertIn("sso_subject", m_cols)
+            finally:
+                c12.close()
+
+        # Admin email & sso_subject CRUD + duplicate rejection + unlink
+        self._login_session(role="admin", user_id="ui_adm_v13", username="ui_admin_v13")
+        u1 = database.create_admin_user(
+            "sso_ui_m1",
+            "PassWord1!",
+            role="member",
+            email="sso_ui_m1@test.local",
+            sso_provider="authentik",
+            sso_subject="uid_test_m1",
+            is_super_admin=False,
+        )
+        u2 = database.create_admin_user(
+            "sso_ui_m2",
+            "PassWord1!",
+            role="member",
+            email="sso_ui_m2@test.local",
+            is_super_admin=False,
+        )
+
+        dup_email_res = self.client.put(f"/api/admin/users/{u2['id']}", json={"email": "sso_ui_m1@test.local"})
+        self.assertEqual(dup_email_res.status_code, 409)
+
+        unlink_res = self.client.put(f"/api/admin/users/{u1['id']}", json={
+            "email": "sso_ui_m1_new@test.local",
+            "sso_subject": "",
+        })
+        self.assertEqual(unlink_res.status_code, 200)
+        u1_after = unlink_res.get_json()["user"]
+        self.assertEqual(u1_after["email"], "sso_ui_m1_new@test.local")
+        self.assertEqual(u1_after["sso_subject"], "")
 
 
 if __name__ == "__main__":

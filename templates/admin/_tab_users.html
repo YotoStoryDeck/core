@@ -65,7 +65,7 @@
         <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
           <strong style="display: block; font-size: 13px; margin-bottom: 10px; color: var(--text-primary);">➕ Add Household User</strong>
           <form id="createHouseholdUserForm" onsubmit="event.preventDefault(); createNewHouseholdUser();" style="margin: 0; padding: 0;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; align-items: end;">
               <div>
                 <label for="newAdminUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username</label>
                 <input type="text" id="newAdminUsername" class="form-control" placeholder="e.g. sitter or jane" autocomplete="off" required>
@@ -73,6 +73,10 @@
               <div>
                 <label for="newAdminDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name</label>
                 <input type="text" id="newAdminDisplayName" class="form-control" placeholder="e.g. Grandma / Sitter" autocomplete="off">
+              </div>
+              <div>
+                <label for="newAdminEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email (SSO Match)</label>
+                <input type="email" id="newAdminEmail" class="form-control" placeholder="user@example.com" autocomplete="off">
               </div>
               <div>
                 <label for="newAdminRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Role</label>
@@ -86,6 +90,7 @@
                 <select id="newAdminAuthSource" class="form-control" onchange="onNewUserAuthSourceChange()">
                   <option value="">Local Password</option>
                   <option value="authentik">SSO / Authentik Link</option>
+                  <option value="authelia">SSO / Authelia Link</option>
                 </select>
               </div>
               <div>
@@ -121,8 +126,8 @@
       <div class="card settings-card" id="cardSsoConfig">
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
           <div>
-            <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Reverse Proxy)</h3>
-            <p class="text-secondary" style="margin: 0; font-size: 13px;">Configure trusted reverse-proxy ForwardAuth headers today and prepare OIDC settings for direct Identity Provider integration.</p>
+            <h3 style="margin-bottom: 4px;">🛡️ SSO &amp; Identity Provider (Authentik / Authelia / Reverse Proxy)</h3>
+            <p class="text-secondary" style="margin: 0; font-size: 13px;">Matches users permanently by immutable Subject/UID after initial email or username match, and automatically adds new SSO users when unmatched.</p>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="unsaved-badge" id="unsaved-sso" style="display: none;"><span class="unsaved-dot"></span> Unsaved Changes</span>
@@ -135,7 +140,7 @@
           <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
               <div>
-                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Reverse-Proxy ForwardAuth (Authentik / NPM / Cloudflare)</strong>
+                <strong style="font-size: 14px; color: var(--text-primary); display: block;">Reverse-Proxy ForwardAuth (Authentik / Authelia / NPM / Cloudflare)</strong>
                 <span class="text-secondary" style="font-size: 12px;">Trust identity headers asserted by proxies matching <code>TRUSTED_PROXIES</code>.</span>
               </div>
               <label class="toggle-control">
@@ -163,8 +168,8 @@
               <div>
                 <label for="ssoDefaultRole" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Unmapped SSO User Role</label>
                 <select id="ssoDefaultRole" class="form-control">
-                  <option value="admin">Admin (Full Console)</option>
                   <option value="member">Member (Parent Portal Only)</option>
+                  <option value="admin">Admin (Full Console)</option>
                 </select>
               </div>
               <div>
@@ -172,8 +177,16 @@
                 <input type="text" id="ssoAdminGroup" class="form-control" placeholder="e.g. storydeck-admins">
               </div>
               <div>
+                <label for="ssoHeaderSubject" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Immutable Subject / UID Header</label>
+                <input type="text" id="ssoHeaderSubject" class="form-control" placeholder="X-authentik-uid">
+              </div>
+              <div>
                 <label for="ssoHeaderUsername" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Username Header</label>
                 <input type="text" id="ssoHeaderUsername" class="form-control" placeholder="X-authentik-username">
+              </div>
+              <div>
+                <label for="ssoHeaderEmail" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Email Header (Initial Match)</label>
+                <input type="text" id="ssoHeaderEmail" class="form-control" placeholder="X-authentik-email">
               </div>
               <div>
                 <label for="ssoHeaderDisplayName" style="font-size: 11px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Display Name Header</label>
@@ -193,16 +206,30 @@
               </div>
             </div>
 
-            <div style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-              <div>
-                <strong style="font-size: 13px; color: var(--text-primary);">Auto-Provision First-Time SSO Users</strong>
-                <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">Automatically persist unknown verified SSO logins into the Household Accounts table above with their resolved role.</p>
+            <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <strong style="font-size: 13px; color: var(--text-primary);">Auto-Link Existing Accounts (Email → Username)</strong>
+                  <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If no account has this SSO UID bound yet, match an unbound local account by email first, then username, and permanently bind its SSO UID.</p>
+                </div>
+                <label class="toggle-control">
+                  <input type="checkbox" id="ssoAutoLinkExistingUsers">
+                  <span class="toggle-slider"></span>
+                  <span style="font-size: 12px;">Auto-Link</span>
+                </label>
               </div>
-              <label class="toggle-control">
-                <input type="checkbox" id="ssoAutoProvisionUsers">
-                <span class="toggle-slider"></span>
-                <span style="font-size: 12px;">Auto-Provision</span>
-              </label>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <strong style="font-size: 13px; color: var(--text-primary);">Auto-Add Unmatched SSO Users</strong>
+                  <p class="text-secondary" style="font-size: 11px; margin: 2px 0 0 0;">If neither Subject UID, email, nor username matches an existing account, create a new user with its bound UID and resolved role.</p>
+                </div>
+                <label class="toggle-control">
+                  <input type="checkbox" id="ssoAutoProvisionUsers">
+                  <span class="toggle-slider"></span>
+                  <span style="font-size: 12px;">Auto-Add</span>
+                </label>
+              </div>
             </div>
           </div>
 

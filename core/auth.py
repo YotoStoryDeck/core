@@ -178,35 +178,72 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
     if not is_request_from_trusted_proxy():
         return None
 
+    raw_subject = _first_header_value(
+        sso_cfg.get("header_subject"),
+        "X-authentik-uid",
+        "X-Forwarded-Sub",
+    )
     sso_username = _first_header_value(
         sso_cfg.get("header_username"),
         "X-authentik-username",
         "X-Forwarded-User",
         "Remote-User",
-        "Cf-Access-Authenticated-User-Email",
     )
-    if not sso_username:
+    sso_email = _first_header_value(
+        sso_cfg.get("header_email"),
+        "X-authentik-email",
+        "Remote-Email",
+        "X-Forwarded-Email",
+        "Cf-Access-Authenticated-User-Email",
+    ).lower()
+
+    # Use immutable UID when supplied; fall back to username/email for proxies like Authelia ForwardAuth
+    sso_subject = raw_subject or sso_username or sso_email
+    if not sso_subject:
         return None
 
     sso_display_name = _first_header_value(
         sso_cfg.get("header_display_name"),
         "X-authentik-name",
+        "Remote-Name",
         "X-Forwarded-Name",
-    ) or sso_username
+    ) or sso_username or sso_email or sso_subject
 
     groups_raw = _first_header_value(
         sso_cfg.get("header_groups"),
         "X-authentik-groups",
+        "Remote-Groups",
         "X-Forwarded-Groups",
     )
     groups = {g.strip().lower() for g in re.split(r"[|,;]", groups_raw) if g.strip()} if groups_raw else set()
 
-    provider_label = str(sso_cfg.get("provider_name") or "SSO").strip() or "SSO"
-    db_user = database.get_user_by_username(sso_username)
+    provider_label = str(sso_cfg.get("provider_name") or "Authentik").strip() or "Authentik"
+    provider_slug = provider_label.lower()
+
+    # Step 1: Primary lookup strictly by immutable SSO Subject / UID
+    db_user = database.get_user_by_sso_subject(sso_subject, provider_slug)
+
+    # Step 2: Initial bootstrap match for unbound accounts (Email first, then Username)
+    if not db_user and sso_cfg.get("auto_link_existing_users", True):
+        cand = None
+        if sso_email:
+            email_match = database.get_user_by_email(sso_email)
+            if email_match and not email_match.get("sso_subject"):
+                cand = email_match
+        if not cand and sso_username:
+            uname_match = database.get_user_by_username_ci(sso_username)
+            if uname_match and not uname_match.get("sso_subject"):
+                cand = uname_match
+        if cand:
+            db_user = database.bind_user_sso_subject(
+                cand["id"], provider_slug, sso_subject, email=sso_email
+            )
 
     if db_user:
         role = str(db_user.get("role") or "member").strip().lower()
         uid = db_user["id"]
+        uname = db_user.get("username") or sso_username or sso_email or sso_subject
+        uemail = db_user.get("email") or sso_email
         dname = db_user.get("display_name") or sso_display_name
         is_super = bool(db_user.get("is_super_admin", False))
     else:
@@ -214,31 +251,53 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
         if admin_group:
             role = "admin" if admin_group in groups else "member"
         else:
-            default_role = str(sso_cfg.get("default_role") or "admin").strip().lower()
-            role = default_role if default_role in ("admin", "member") else "admin"
+            default_role = str(sso_cfg.get("default_role") or "member").strip().lower()
+            role = default_role if default_role in ("admin", "member") else "member"
 
-        uid = f"sso_{sso_username}"
+        uid = f"sso_{sso_subject}"
+        uname = sso_username or sso_email or sso_subject
+        uemail = sso_email
         dname = sso_display_name
         is_super = False
 
-        if sso_cfg.get("auto_provision_users", False):
+        # Step 3: Auto-add unmatched SSO user with bound immutable UID
+        if sso_cfg.get("auto_provision_users", True):
+            base_username = (
+                sso_username
+                or (sso_email.split("@")[0] if "@" in sso_email else sso_email)
+                or f"sso_{sso_subject[:12]}"
+            )
+            provision_username = base_username
+            if database.get_user_by_username_ci(provision_username):
+                sub_tag = re.sub(r"[^a-zA-Z0-9_-]", "", sso_subject)[:6] or secrets.token_hex(3)
+                provision_username = f"{base_username}_{sub_tag}"
+                while database.get_user_by_username_ci(provision_username):
+                    provision_username = f"{base_username}_{secrets.token_hex(2)}"
+
+            email_to_store = sso_email if (sso_email and not database.get_user_by_email(sso_email)) else ""
             try:
                 created = database.create_admin_user(
-                    username=sso_username,
+                    username=provision_username,
                     password=secrets.token_urlsafe(32),
                     display_name=sso_display_name,
                     role=role,
-                    sso_provider=provider_label.lower(),
+                    sso_provider=provider_slug,
+                    email=email_to_store,
+                    sso_subject=sso_subject,
                     is_super_admin=False,
                 )
                 uid = created["id"]
+                uname = created.get("username") or provision_username
+                uemail = created.get("email") or email_to_store
                 dname = created.get("display_name") or sso_display_name
                 is_super = bool(created.get("is_super_admin", False))
             except Exception as e:
-                logger.debug("SSO auto-provision skipped/raced for '%s': %s", sso_username, e)
-                existing = database.get_user_by_username(sso_username)
+                logger.debug("SSO auto-provision skipped/raced for '%s': %s", sso_subject, e)
+                existing = database.get_user_by_sso_subject(sso_subject, provider_slug)
                 if existing:
                     uid = existing["id"]
+                    uname = existing.get("username") or provision_username
+                    uemail = existing.get("email") or sso_email
                     dname = existing.get("display_name") or sso_display_name
                     role = str(existing.get("role") or role).strip().lower()
                     is_super = bool(existing.get("is_super_admin", False))
@@ -248,13 +307,15 @@ def _resolve_sso_identity(require_admin_role: bool = False) -> Optional[Dict[str
 
     return {
         "id": uid,
-        "username": sso_username,
+        "username": uname,
         "display_name": dname,
+        "email": uemail,
         "role": role,
         "is_super_admin": is_super,
         "is_lan_guest": False,
         "auth_type": "sso",
         "sso_provider": provider_label,
+        "sso_subject": sso_subject,
     }
 
 
